@@ -14,7 +14,8 @@ const CONFIG = {
 const AD_FREQUENCY        = 5;   // songs between ads for free users
 const AD_COUNTDOWN_SECS   = 5;   // seconds before ad can be skipped
 const MAX_RECENT_SONGS    = 20;  // max items in recently-played list
-const MAX_AVATAR_SIZE     = 2 * 1024 * 1024; // 2 MB
+const MAX_VIDEO_HEIGHT    = 360; // max video player height in pixels
+const MAX_AVATAR_SIZE     = 2 * 1024 * 1024; // 2 MB max profile picture
 const state = {
   user: null,               // { username, email, memberSince }
   currentView: 'login',
@@ -1256,7 +1257,7 @@ function loadProfilePicture() {
 function handleAvatarUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
-  if (file.size > MAX_AVATAR_SIZE) { showToast('Image must be under 2 MB', 'error'); return; }
+  if (file.size > MAX_AVATAR_SIZE) { showToast(`Image must be under ${MAX_AVATAR_SIZE / (1024 * 1024)} MB`, 'error'); return; }
   const reader = new FileReader();
   reader.onload = (ev) => {
     localStorage.setItem('cipher_avatar', ev.target.result);
@@ -1277,7 +1278,7 @@ function toggleVideoMode() {
   if (btn) btn.classList.toggle('active', state.videoMode);
 
   if (state.videoMode && state.ytPlayer && state.ytReady) {
-    state.ytPlayer.setSize(container.clientWidth, Math.min(container.clientHeight, 360));
+    state.ytPlayer.setSize(container.clientWidth, Math.min(container.clientHeight, MAX_VIDEO_HEIGHT));
   }
 }
 
