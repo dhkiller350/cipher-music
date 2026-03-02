@@ -1,4 +1,4 @@
-const CACHE = 'cipher-v5';
+const CACHE = 'cipher-v6';
 const ASSETS = [
   '/', '/index.html', '/signup.html', '/reset-password.html',
   '/style.css', '/app.js', '/manifest.json',

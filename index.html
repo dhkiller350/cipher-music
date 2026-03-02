@@ -663,13 +663,26 @@
               <span class="stat-label">Hours Listened</span>
             </div>
           </div>
+
+          <!-- Plan perks card -->
+          <div class="profile-plan-card glass-card">
+            <div class="profile-plan-header">
+              <div>
+                <p class="profile-plan-label">Your Plan</p>
+                <h3 id="profile-plan-name" class="profile-plan-name">Free</h3>
+              </div>
+              <span id="profile-plan-badge" class="plan-badge hidden"></span>
+            </div>
+            <ul class="profile-plan-perks" id="profile-plan-perks"></ul>
+            <button class="btn-primary btn-full" id="btn-profile-upgrade" onclick="showView('upgrade')">⭐ Upgrade to Pro Pack</button>
+          </div>
         </div>
       </section>
 
       <!-- ─── UPGRADE VIEW ─── -->
       <section id="view-upgrade" class="view">
         <div class="view-content">
-          <h2 class="section-title">Upgrade to Cipher Pro</h2>
+          <h2 class="section-title">Upgrade Your Plan</h2>
           <p class="section-subtitle">Unlock the full Cipher experience</p>
 
           <!-- Current Plan Banner -->
@@ -688,32 +701,35 @@
               <ul class="plan-features">
                 <li>Standard audio quality</li>
                 <li>Ad-supported</li>
-                <li>Limited skips</li>
+                <li>Unlimited search</li>
+                <li>3 playlists max</li>
               </ul>
               <button class="btn-outline plan-select-btn" data-plan="free">Select Free</button>
             </div>
             <div class="plan-card glass-card plan-featured" data-plan="pro">
               <div class="plan-badge">Most Popular</div>
-              <h3 class="plan-name">Pro</h3>
+              <h3 class="plan-name">Pro Pack</h3>
               <div class="plan-price">$9.99<span>/mo</span></div>
               <ul class="plan-features">
-                <li>High quality audio</li>
-                <li>Ad-free listening</li>
-                <li>Unlimited skips</li>
-                <li>Offline downloads</li>
+                <li>✓ High quality audio</li>
+                <li>✓ Ad-free listening</li>
+                <li>✓ Unlimited playlists</li>
+                <li>✓ Sleep timer</li>
+                <li>✓ Playback speed control</li>
+                <li>✓ Download history</li>
               </ul>
-              <button class="btn-primary plan-select-btn" data-plan="pro">Select Pro</button>
+              <button class="btn-primary plan-select-btn" data-plan="pro">Select Pro Pack</button>
             </div>
             <div class="plan-card glass-card" data-plan="premium">
               <h3 class="plan-name">Premium</h3>
               <div class="plan-price">$19.99<span>/mo</span></div>
               <ul class="plan-features">
-                <li>Lossless audio quality</li>
-                <li>Ad-free listening</li>
-                <li>Unlimited skips</li>
-                <li>Offline downloads</li>
-                <li>Exclusive content</li>
-                <li>Priority support</li>
+                <li>✓ Everything in Pro Pack</li>
+                <li>✓ Lossless audio quality</li>
+                <li>✓ Custom equalizer presets</li>
+                <li>✓ Custom accent colour</li>
+                <li>✓ Exclusive genres &amp; content</li>
+                <li>✓ Priority support</li>
               </ul>
               <button class="btn-outline plan-select-btn" data-plan="premium">Select Premium</button>
             </div>
@@ -721,47 +737,55 @@
 
           <!-- Payment Form -->
           <div id="payment-form-section" class="payment-section glass-card hidden">
-            <h3 class="payment-title">Payment Details</h3>
-            <div class="security-badges">
-              <span class="badge">🔒 256-bit SSL Encrypted</span>
-              <span class="badge">✅ Secure Checkout</span>
+            <h3 class="payment-title">Complete Your Subscription</h3>
+            <p class="payment-selected-plan" id="selected-plan-label">Pro Pack — $9.99/mo</p>
+
+            <!-- How to pay -->
+            <div class="payment-methods">
+              <div class="payment-method-card cashapp-method">
+                <p class="payment-method-title">💵 Pay via CashApp</p>
+                <a class="cashapp-tag" href="https://cash.app/$CIPHERPREMIUM" target="_blank" rel="noopener">$CIPHERPREMIUM</a>
+                <p class="cashapp-note">Send the exact plan amount to the CashApp above, then confirm below.</p>
+              </div>
+              <div class="payment-method-divider">or</div>
+              <div class="payment-method-card bank-method">
+                <p class="payment-method-title">🏦 Bank Transfer / Zelle</p>
+                <div class="bank-details">
+                  <div class="bank-row"><span class="bank-label">Zelle / Bank email</span><span class="bank-value">payments@ciphermusic.app</span></div>
+                  <div class="bank-row"><span class="bank-label">Name on account</span><span class="bank-value">Cipher Music LLC</span></div>
+                </div>
+                <p class="cashapp-note">Send the exact plan amount, then confirm below.</p>
+              </div>
             </div>
+
+            <!-- Confirm payment -->
             <form id="payment-form" novalidate>
+              <h4 class="payment-confirm-title">Confirm Your Payment</h4>
               <div class="form-group">
-                <label for="card-name">Cardholder Name</label>
-                <input type="text" id="card-name" placeholder="John Doe" />
-                <span class="field-error" id="err-card-name"></span>
+                <label for="pay-name">Your Name</label>
+                <input type="text" id="pay-name" placeholder="Jane Doe" autocomplete="name" />
+                <span class="field-error" id="err-pay-name"></span>
               </div>
               <div class="form-group">
-                <label for="card-number">Card Number</label>
-                <input type="text" id="card-number" placeholder="1234 5678 9012 3456" maxlength="19" inputmode="numeric" />
-                <span class="field-error" id="err-card-number"></span>
+                <label for="pay-email">Your Email</label>
+                <input type="email" id="pay-email" placeholder="you@example.com" autocomplete="email" />
+                <span class="field-error" id="err-pay-email"></span>
               </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="card-expiry">Expiry Date</label>
-                  <input type="text" id="card-expiry" placeholder="MM/YY" maxlength="5" inputmode="numeric" />
-                  <span class="field-error" id="err-card-expiry"></span>
-                </div>
-                <div class="form-group">
-                  <label for="card-cvv">CVV</label>
-                  <input type="text" id="card-cvv" placeholder="123" maxlength="4" inputmode="numeric" />
-                  <span class="field-error" id="err-card-cvv"></span>
-                </div>
+              <div class="form-group pay-confirm-check">
+                <label class="check-label">
+                  <input type="checkbox" id="pay-confirm" />
+                  <span>I have sent my payment via CashApp or bank transfer</span>
+                </label>
+                <span class="field-error" id="err-pay-confirm"></span>
               </div>
-              <button type="submit" class="btn-primary btn-full">Subscribe Now</button>
+              <button type="submit" class="btn-primary btn-full">Activate Plan</button>
             </form>
             <div id="payment-success" class="success-message hidden">
               <svg viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2" width="48" height="48">
                 <polyline points="20,6 9,17 4,12"/>
               </svg>
-              <h4 id="payment-success-title">You're now a Cipher Pro member! 🎉</h4>
-              <p>Thank you for subscribing. Enjoy the full Cipher experience.</p>
-            </div>
-            <div class="cashapp-info">
-              <p class="cashapp-label">💵 Send payment via CashApp</p>
-              <a class="cashapp-tag" href="https://cash.app/$CIPHERPREMIUM" target="_blank" rel="noopener">$CIPHERPREMIUM</a>
-              <p class="cashapp-note">After payment, enter your details above and click Subscribe to activate your plan.</p>
+              <h4 id="payment-success-title">You're now a Cipher Pro Pack member! 🎉</h4>
+              <p>Thank you for subscribing. Your plan is now active — enjoy the full Cipher experience.</p>
             </div>
           </div>
         </div>
@@ -839,9 +863,9 @@
                 <span class="toggle-slider"></span>
               </label>
             </div>
-            <div class="setting-row">
+            <div class="setting-row" data-requires="pro">
               <div class="setting-info">
-                <span class="setting-name">High Quality Audio</span>
+                <span class="setting-name">High Quality Audio <span class="tier-lock-badge badge-pro">⭐ Pro</span></span>
                 <span class="setting-desc">Stream at highest available quality</span>
               </div>
               <label class="toggle-switch">
@@ -870,9 +894,9 @@
                 <option value="one">Repeat One</option>
               </select>
             </div>
-            <div class="setting-row">
+            <div class="setting-row" data-requires="pro">
               <div class="setting-info">
-                <span class="setting-name">Playback Speed</span>
+                <span class="setting-name">Playback Speed <span class="tier-lock-badge badge-pro">⭐ Pro</span></span>
                 <span class="setting-desc">Adjust how fast tracks play</span>
               </div>
               <select id="playback-speed" class="select-input">
@@ -883,9 +907,9 @@
                 <option value="2">2×</option>
               </select>
             </div>
-            <div class="setting-row">
+            <div class="setting-row" data-requires="pro">
               <div class="setting-info">
-                <span class="setting-name">⏱️ Sleep Timer</span>
+                <span class="setting-name">⏱️ Sleep Timer <span class="tier-lock-badge badge-pro">⭐ Pro</span></span>
                 <span class="setting-desc">Auto-pause playback after a set time</span>
               </div>
               <select id="sleep-timer-select" class="select-input">
@@ -901,9 +925,9 @@
 
           <div class="settings-group glass-card">
             <h3 class="settings-group-title">Equalizer Preset</h3>
-            <div class="setting-row">
+            <div class="setting-row" data-requires="premium">
               <div class="setting-info">
-                <span class="setting-name">EQ Preset</span>
+                <span class="setting-name">EQ Preset <span class="tier-lock-badge badge-premium">💎 Premium</span></span>
                 <span class="setting-desc">Choose a sound profile</span>
               </div>
               <select id="eq-preset" class="select-input">
@@ -964,9 +988,9 @@
                 <option value="pt">Português</option>
               </select>
             </div>
-            <div class="setting-row">
+            <div class="setting-row" data-requires="premium">
               <div class="setting-info">
-                <span class="setting-name">🎨 Accent Colour</span>
+                <span class="setting-name">🎨 Accent Colour <span class="tier-lock-badge badge-premium">💎 Premium</span></span>
                 <span class="setting-desc">Personalise the app highlight colour</span>
               </div>
               <div class="accent-picker-wrap">

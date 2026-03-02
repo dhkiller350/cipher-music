@@ -111,6 +111,28 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+// ── Page Lifecycle: pagehide / freeze ─────────────────────
+// On iOS/iPadOS "pagehide" fires when the page is being navigated away or
+// put into the back/forward cache.  We must NOT stop audio here or it kills
+// background playback.  "freeze" fires when the browser suspends the page
+// (Page Lifecycle API); we simply keep the AudioContext alive.
+window.addEventListener('pagehide', (e) => {
+  // e.persisted === true → page is entering the back/forward cache (bfcache).
+  // Keep the audio session open so music continues in the background.
+  if (e.persisted && state.isPlaying) {
+    startBgAudioKeepAlive();
+  }
+});
+
+if ('onfreeze' in document) {
+  document.addEventListener('freeze', () => {
+    // Browser is freezing the page; resume AudioContext so it isn't discarded.
+    if (_bgAudioCtx && _bgAudioCtx.state === 'suspended') {
+      _bgAudioCtx.resume().catch(() => {});
+    }
+  });
+}
+
 // ── iOS Background Audio Keep-Alive ──────────────────────
 // On iOS (Safari/PWA) the audio session is suspended when the screen locks
 // or when the user switches apps.  Playing a near-silent 1 Hz tone via the
@@ -1326,13 +1348,17 @@ function selectPlan(plan) {
   const section = $('#payment-form-section');
   const success = $('#payment-success');
   const form    = $('#payment-form');
+  const planLabel = $('#selected-plan-label');
 
   if (plan === 'free') {
     section?.classList.add('hidden');
-    state.activePlan = 'free';
-    updatePlanBanner();
+    savePlan('free');
+    showToast('Switched to Free plan.', 'info', 2000);
     return;
   }
+
+  const planNames = { pro: 'Pro Pack — $9.99/mo', premium: 'Premium — $19.99/mo' };
+  if (planLabel) planLabel.textContent = planNames[plan] || plan;
 
   success?.classList.add('hidden');
   form?.classList.remove('hidden');
@@ -1340,44 +1366,28 @@ function selectPlan(plan) {
   section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function formatCardNumber(input) {
-  let value = input.value.replace(/\D/g, '').substring(0, 16);
-  value = value.replace(/(.{4})/g, '$1 ').trim();
-  input.value = value;
-}
-
-function formatExpiry(input) {
-  let value = input.value.replace(/\D/g, '').substring(0, 4);
-  if (value.length >= 3) value = value.substring(0, 2) + '/' + value.substring(2);
-  input.value = value;
-}
-
 function validatePayment() {
-  const name   = $('#card-name')?.value.trim();
-  const number = $('#card-number')?.value.replace(/\s/g, '');
-  const expiry = $('#card-expiry')?.value;
-  const cvv    = $('#card-cvv')?.value;
+  const name  = $('#pay-name')?.value.trim();
+  const email = $('#pay-email')?.value.trim();
+  const conf  = $('#pay-confirm')?.checked;
 
   let valid = true;
-
   const setErr = (id, msg) => {
     const el = $(`#${id}`);
     if (el) el.textContent = msg;
     if (msg) valid = false;
   };
 
-  setErr('err-card-name',   (name?.length ?? 0) < 2 ? 'Please enter the cardholder name.' : '');
-  setErr('err-card-number', (number?.length ?? 0) !== 16 ? 'Please enter a valid 16-digit card number.' : '');
-  setErr('err-card-expiry', !/^\d{2}\/\d{2}$/.test(expiry ?? '') ? 'Please use MM/YY format.' : '');
-  setErr('err-card-cvv',    !/^\d{3,4}$/.test(cvv ?? '') ? 'CVV must be 3 or 4 digits.' : '');
-
+  setErr('err-pay-name',    (name?.length ?? 0) < 2   ? 'Please enter your name.'        : '');
+  setErr('err-pay-email',   !/^[^@]+@[^@]+\.[^@]+$/.test(email ?? '') ? 'Please enter a valid email.' : '');
+  setErr('err-pay-confirm', !conf ? 'Please confirm you have sent your payment.' : '');
   return valid;
 }
 
 function updatePlanBanner() {
   const nameEl  = $('#current-plan-name');
   const badgeEl = $('#current-plan-badge');
-  const planLabels = { free: 'Free', pro: 'Pro', premium: 'Premium' };
+  const planLabels = { free: 'Free', pro: 'Pro Pack', premium: 'Premium' };
   if (nameEl) nameEl.textContent = planLabels[state.activePlan] || 'Free';
   if (badgeEl) badgeEl.textContent = 'Active';
 }
@@ -1385,6 +1395,9 @@ function updatePlanBanner() {
 function loadPlan() {
   const saved = localStorage.getItem('cipher_active_plan');
   if (saved) state.activePlan = saved;
+  updatePlanBadge();
+  updateProfilePlanCard();
+  applyPlanGates();
 }
 
 function savePlan(plan) {
@@ -1392,19 +1405,110 @@ function savePlan(plan) {
   localStorage.setItem('cipher_active_plan', plan);
   updatePlanBanner();
   updatePlanBadge();
+  updateProfilePlanCard();
+  applyPlanGates();
 }
 
 function updatePlanBadge() {
   const badge = $('#plan-badge');
   if (!badge) return;
   if (state.activePlan === 'pro') {
-    badge.textContent = '⭐ Pro';
+    badge.textContent = '⭐ Pro Pack';
     badge.className = 'plan-badge plan-badge-pro';
   } else if (state.activePlan === 'premium') {
     badge.textContent = '💎 Premium';
     badge.className = 'plan-badge plan-badge-premium';
   } else {
     badge.className = 'plan-badge hidden';
+  }
+}
+
+// ── Plan tier helpers ─────────────────────────────────────
+function isPro()     { return state.activePlan === 'pro' || state.activePlan === 'premium'; }
+function isPremium() { return state.activePlan === 'premium'; }
+
+/**
+ * Gate a user action behind a minimum plan tier.
+ * If the user doesn't have the required tier, shows an upgrade toast and
+ * navigates to the upgrade view.  Returns true if allowed.
+ */
+function requirePlan(minTier) {
+  const tierOrder = { free: 0, pro: 1, premium: 2 };
+  if ((tierOrder[state.activePlan] ?? 0) >= (tierOrder[minTier] ?? 0)) return true;
+  const tierLabels = { pro: 'Pro Pack', premium: 'Premium' };
+  showToast(`⭐ ${tierLabels[minTier] || 'Pro Pack'} required — upgrade to unlock this feature.`, 'info', 4000);
+  showView('upgrade');
+  return false;
+}
+
+/** Apply visual locked-state to settings rows based on current plan. */
+function applyPlanGates() {
+  $$('[data-requires]').forEach(row => {
+    const required = row.dataset.requires;
+    const allowed  = required === 'pro' ? isPro() : isPremium();
+    row.classList.toggle('setting-gated', !allowed);
+  });
+  updateProfilePlanCard();
+}
+
+/** Update the plan-perks card on the profile page. */
+function updateProfilePlanCard() {
+  const planName  = $('#profile-plan-name');
+  const planBadge = $('#profile-plan-badge');
+  const upgradeBtn = $('#btn-profile-upgrade');
+  const perksList = $('#profile-plan-perks');
+
+  const labels = { free: 'Free', pro: 'Pro Pack', premium: 'Premium' };
+  if (planName) planName.textContent = labels[state.activePlan] || 'Free';
+
+  if (planBadge) {
+    if (state.activePlan === 'pro') {
+      planBadge.textContent = '⭐ Pro Pack';
+      planBadge.className   = 'plan-badge plan-badge-pro';
+    } else if (state.activePlan === 'premium') {
+      planBadge.textContent = '💎 Premium';
+      planBadge.className   = 'plan-badge plan-badge-premium';
+    } else {
+      planBadge.className = 'plan-badge hidden';
+    }
+  }
+
+  if (upgradeBtn) {
+    upgradeBtn.classList.toggle('hidden', state.activePlan === 'premium');
+    upgradeBtn.textContent = state.activePlan === 'pro' ? '💎 Upgrade to Premium' : '⭐ Upgrade to Pro Pack';
+  }
+
+  if (perksList) {
+    const allPerks = [
+      { text: 'Standard audio quality',        tier: 'free'    },
+      { text: 'Unlimited search',               tier: 'free'    },
+      { text: 'Basic playlists',                tier: 'free'    },
+      { text: 'High quality audio',             tier: 'pro'     },
+      { text: 'Ad-free listening',              tier: 'pro'     },
+      { text: 'Unlimited playlists',            tier: 'pro'     },
+      { text: 'Sleep timer',                    tier: 'pro'     },
+      { text: 'Playback speed control',         tier: 'pro'     },
+      { text: 'Download history',               tier: 'pro'     },
+      { text: 'Lossless / highest audio',       tier: 'premium' },
+      { text: 'Custom equalizer presets',       tier: 'premium' },
+      { text: 'Custom accent colour',           tier: 'premium' },
+      { text: 'Exclusive genres & content',     tier: 'premium' },
+      { text: 'Priority support',               tier: 'premium' },
+    ];
+    const tierOrder = { free: 0, pro: 1, premium: 2 };
+    const userTier  = tierOrder[state.activePlan] ?? 0;
+    const tierBadges = {
+      pro:     '<span class="perk-tier-badge badge-pro">⭐ Pro</span>',
+      premium: '<span class="perk-tier-badge badge-premium">💎 Premium</span>',
+    };
+    perksList.innerHTML = allPerks.map(p => {
+      const unlocked  = userTier >= (tierOrder[p.tier] ?? 0);
+      const badgeHtml = tierBadges[p.tier] || '';
+      return `<li class="profile-perk-item ${unlocked ? 'perk-unlocked' : 'perk-locked'}">
+        <span class="perk-check">${unlocked ? '✓' : '🔒'}</span>
+        <span class="perk-text">${p.text}${badgeHtml}</span>
+      </li>`;
+    }).join('');
   }
 }
 
@@ -1622,8 +1726,8 @@ function handlePayment(e) {
   if (!validatePayment()) return;
 
   savePlan(state.selectedPlan || 'pro');
-  const planNames = { pro: 'Pro', premium: 'Premium' };
-  const planName = planNames[state.selectedPlan] || 'Pro';
+  const planNames = { pro: 'Pro Pack', premium: 'Premium' };
+  const planName = planNames[state.selectedPlan] || 'Pro Pack';
   const titleEl = $('#payment-success-title');
   if (titleEl) titleEl.textContent = `You're now a Cipher ${planName} member! 🎉`;
   $('#payment-form')?.classList.add('hidden');
@@ -2334,8 +2438,17 @@ function bindEvents() {
 
   // ── Payment form ──
   $('#payment-form')?.addEventListener('submit', handlePayment);
-  $('#card-number')?.addEventListener('input', function () { formatCardNumber(this); });
-  $('#card-expiry')?.addEventListener('input', function () { formatExpiry(this); });
+
+  // ── Gated settings: intercept clicks on locked rows ──
+  document.addEventListener('click', e => {
+    const row = e.target.closest('[data-requires]');
+    if (!row) return;
+    const required = row.dataset.requires;
+    if (row.classList.contains('setting-gated')) {
+      e.preventDefault();
+      requirePlan(required);
+    }
+  }, true); // capture phase so we catch checkbox/select interactions
 
   // ── Settings toggles ──
   $('#toggle-dark-mode')?.addEventListener('change', function () {
