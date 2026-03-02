@@ -1440,8 +1440,8 @@ async function handleSearch(query, channelId = '') {
       msg = '🔧 Cipher Music is under maintenance.';
       action = 'We\'ll be back shortly! Check back soon.';
     } else if (code === 'QUOTA') {
-      msg = '⚠️ Daily search limit reached.';
-      action = 'We\'ve hit the daily YouTube quota. Try again after midnight (Pacific time), or tap the button below to reset and retry.';
+      msg = '🔄 Search temporarily unavailable.';
+      action = 'YouTube search is momentarily at capacity. Tap below to try again — it usually resolves quickly.';
     } else if (code === 'KEY_INVALID') {
       msg = '⚠️ Service configuration error.';
       action = 'Please contact support. (API key issue)';
@@ -3303,6 +3303,7 @@ function init() {
   const _params = new URLSearchParams(window.location.search);
   if (_params.get('debug') === '1' || _params.get('admin') === '1') {
     setTimeout(() => {
+      if (!_assertAdminUser()) return;
       const hasPin = !!localStorage.getItem(ADMIN_PIN_KEY);
       if (!hasPin) {
         // First-time setup — show panel directly with setup form
@@ -3322,6 +3323,20 @@ document.addEventListener('DOMContentLoaded', init);
 // ═══════════════════════════════════════════════════════════
 // ADMIN / DEBUG PANEL
 // ═══════════════════════════════════════════════════════════
+
+// Lowercase admin email constant — evaluated once at module parse time.
+const ADMIN_EMAIL_LC = CONFIG.ADMIN_EMAIL.toLowerCase();
+
+/**
+ * Returns true if the currently logged-in user is the designated admin.
+ * Shows an error toast and returns false for everyone else.
+ */
+function _assertAdminUser() {
+  const email = (state.user?.email || '').toLowerCase().trim();
+  if (email === ADMIN_EMAIL_LC) return true;
+  showToast('⛔ Admin access is restricted to the site owner.', 'error', 4000);
+  return false;
+}
 
 function initAdminPanel() {
   // Ctrl+Shift+D (desktop)
@@ -3355,6 +3370,9 @@ function initAdminPanel() {
 function openAdminPanel() {
   const panel = document.getElementById('admin-panel');
   if (!panel) return;
+
+  // Only the designated admin account may access the panel
+  if (!_assertAdminUser()) return;
 
   if (adminState.isAdminSession) {
     // Already authenticated — toggle
