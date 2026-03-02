@@ -27,6 +27,8 @@ if (!CONFIG.YOUTUBE_API_KEY || CONFIG.YOUTUBE_API_KEY.length < 20) {
 const YOUTUBE_DAILY_QUOTA  = 10000;          // YouTube Data API v3 daily quota units
 const MAX_DISPLAYED_LOGS   = 50;             // max entries shown in the admin log panel
 const ADMIN_PIN_KEY = 'cipher_admin_pin';    // localStorage key for PIN hash
+// Pre-computed SHA-256 of the default admin PIN ("5555").
+const DEFAULT_ADMIN_PIN_HASH = 'c1f330d0aff31c1c87403f1e4347bcc21aff7c179908723535f2b31723702525';
 const MAINT_KEY    = 'cipher_maintenance';   // localStorage key for maintenance flag
 const _adminDefaults = { maintenanceMode: false, isAdminSession: false, quotaUsedToday: 0 };
 const adminState = Object.assign({}, _adminDefaults);
@@ -73,6 +75,10 @@ function _pacificDateString() {
 // Load maintenance flag and quota from localStorage at startup
 (function loadAdminState() {
   adminState.maintenanceMode = localStorage.getItem(MAINT_KEY) === '1';
+  // Seed default admin PIN (5555) if none has been set yet.
+  if (!localStorage.getItem(ADMIN_PIN_KEY)) {
+    localStorage.setItem(ADMIN_PIN_KEY, DEFAULT_ADMIN_PIN_HASH);
+  }
   const quota = JSON.parse(localStorage.getItem('cipher_quota_today') || 'null');
   if (quota && quota.date === _pacificDateString()) {
     adminState.quotaUsedToday = quota.used || 0;
@@ -3279,6 +3285,14 @@ function init() {
 
   bindEvents();
   initAdminPanel(); // attach admin panel keyboard shortcut
+
+  // Auto-reset YouTube quota counter and search cache every 5 hours so users
+  // can continue searching without hitting the "temporarily unavailable" screen.
+  setInterval(() => {
+    adminState.quotaUsedToday = 0;
+    localStorage.removeItem('cipher_quota_today');
+    _searchCache = {};
+  }, 5 * 60 * 60 * 1000); // 5 hours in ms
 
   // Hash-based routing: allow direct links to signup/reset
   const hash = window.location.hash.slice(1);
