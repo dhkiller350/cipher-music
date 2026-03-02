@@ -351,26 +351,30 @@
 
           <!-- Genre chips / Recommended Categories -->
           <div class="genre-chips" id="genre-chips">
-            <button class="genre-chip active" data-query="trending music 2025">🔥 Trending</button>
-            <button class="genre-chip" data-query="new music releases 2025">🆕 New Releases</button>
-            <button class="genre-chip" data-query="hip hop rap hits 2025">🎤 Hip-Hop</button>
-            <button class="genre-chip" data-query="pop music hits 2025">🎵 Pop</button>
-            <button class="genre-chip" data-query="r&amp;b soul music 2025">🎸 R&amp;B</button>
-            <button class="genre-chip" data-query="rock music hits">🎸 Rock</button>
-            <button class="genre-chip" data-query="electronic dance music EDM 2025">⚡ Electronic</button>
-            <button class="genre-chip" data-query="country music hits 2025">🤠 Country</button>
-            <button class="genre-chip" data-query="latin music reggaeton 2025">💃 Latin</button>
-            <button class="genre-chip" data-query="k-pop kpop hits 2025">🌸 K-Pop</button>
-            <button class="genre-chip" data-query="afrobeats afro music 2025">🌍 Afrobeats</button>
-            <button class="genre-chip" data-query="reggae dancehall music">🎺 Reggae</button>
-            <button class="genre-chip" data-query="jazz music playlist">🎷 Jazz</button>
-            <button class="genre-chip" data-query="classical music orchestra">🎻 Classical</button>
-            <button class="genre-chip" data-query="metal rock heavy music">🤘 Metal</button>
-            <button class="genre-chip" data-query="indie alternative music 2025">🎼 Indie</button>
-            <button class="genre-chip" data-query="gospel praise worship music">🎶 Gospel</button>
-            <button class="genre-chip" data-query="blues music songs">🎵 Blues</button>
-            <button class="genre-chip" data-query="workout gym motivation music 2025">💪 Workout</button>
-            <button class="genre-chip" data-query="lo-fi chill study music">☁️ Lo-Fi</button>
+            <button class="genre-chip active" data-query="trending songs 2025">🔥 Trending</button>
+            <button class="genre-chip" data-query="NullRaze music" data-channel="UCNullRaze">🎙️ NullRaze</button>
+            <button class="genre-chip" data-query="new music 2025 official audio">🆕 New Releases</button>
+            <button class="genre-chip" data-query="hip hop rap 2025 official video">🎤 Hip-Hop</button>
+            <button class="genre-chip" data-query="pop hits 2025 music video">🎵 Pop</button>
+            <button class="genre-chip" data-query="r&amp;b soul 2025 official">🎸 R&amp;B</button>
+            <button class="genre-chip" data-query="rock songs 2025 official video">🎸 Rock</button>
+            <button class="genre-chip" data-query="EDM electronic dance 2025">⚡ Electronic</button>
+            <button class="genre-chip" data-query="country music 2025 official">🤠 Country</button>
+            <button class="genre-chip" data-query="latin reggaeton 2025">💃 Latin</button>
+            <button class="genre-chip" data-query="kpop k-pop 2025 MV">🌸 K-Pop</button>
+            <button class="genre-chip" data-query="afrobeats 2025 official video">🌍 Afrobeats</button>
+            <button class="genre-chip" data-query="reggae dancehall 2025">🎺 Reggae</button>
+            <button class="genre-chip" data-query="jazz music 2025">🎷 Jazz</button>
+            <button class="genre-chip" data-query="classical music best">🎻 Classical</button>
+            <button class="genre-chip" data-query="metal heavy rock 2025">🤘 Metal</button>
+            <button class="genre-chip" data-query="indie alternative 2025 official">🎼 Indie</button>
+            <button class="genre-chip" data-query="gospel praise worship 2025">🎶 Gospel</button>
+            <button class="genre-chip" data-query="blues soul music">🎵 Blues</button>
+            <button class="genre-chip" data-query="workout gym motivation 2025">💪 Workout</button>
+            <button class="genre-chip" data-query="lofi chill beats study">☁️ Lo-Fi</button>
+            <button class="genre-chip" data-query="drill trap music 2025">🔫 Drill</button>
+            <button class="genre-chip" data-query="phonk music 2025">🏎️ Phonk</button>
+            <button class="genre-chip" data-query="amapiano south africa 2025">🌀 Amapiano</button>
           </div>
           <div id="search-results" class="results-grid"></div>
           <div id="no-results" class="empty-state hidden">
@@ -397,6 +401,18 @@
             </div>
           </div>
           <div class="player-controls">
+            <!-- Previous track -->
+            <button id="btn-prev" class="ctrl-btn" aria-label="Previous track" title="Previous">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
+                <rect x="5" y="4" width="2" height="16"/><polygon points="19,4 9,12 19,20"/>
+              </svg>
+            </button>
+            <!-- Replay current track from start -->
+            <button id="btn-replay" class="ctrl-btn" aria-label="Replay track" title="Replay">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                <polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 .49-3.87"/>
+              </svg>
+            </button>
             <button id="btn-play-pause" class="ctrl-btn" aria-label="Play/Pause">
               <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
                 <polygon points="5,3 19,12 5,21"/>
@@ -405,9 +421,16 @@
                 <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
               </svg>
             </button>
-            <button id="btn-next" class="ctrl-btn" aria-label="Next track">
+            <button id="btn-next" class="ctrl-btn" aria-label="Next track" title="Next">
               <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
                 <polygon points="5,4 15,12 5,20"/><rect x="17" y="4" width="2" height="16"/>
+              </svg>
+            </button>
+            <!-- Shuffle toggle -->
+            <button id="btn-shuffle" class="ctrl-btn shuffle-btn" aria-label="Shuffle" title="Shuffle" aria-pressed="false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                <polyline points="16,3 21,3 21,8"/><line x1="4" y1="20" x2="21" y2="3"/>
+                <polyline points="21,16 21,21 16,21"/><line x1="15" y1="15" x2="21" y2="21"/>
               </svg>
             </button>
           </div>

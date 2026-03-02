@@ -29,7 +29,7 @@ const state = {
   pendingCode: null,        // 6-digit string
   pendingReset: null,       // { email } – set during password-reset flow
   featuredLoaded: false,    // whether trending music is already loaded
-  activeChip: 'trending music 2025',
+  activeChip: 'trending songs 2025',
   activePlan: 'free',       // currently subscribed plan
   songsPlayed: 0,           // session play count
   minutesListened: 0,       // session listening minutes
@@ -735,6 +735,43 @@ function playNext() {
   if (next < state.searchResults.length) playVideo(next);
 }
 
+function playPrev() {
+  // If more than 3 seconds into the track, restart it instead of going back
+  if (state.ytPlayer && state.ytReady) {
+    const currentTime = state.ytPlayer.getCurrentTime?.() ?? 0;
+    if (currentTime > 3) { replayTrack(); return; }
+  }
+  const prev = state.currentIndex - 1;
+  if (prev >= 0) {
+    playVideo(prev);
+  } else {
+    showToast('Already at the first track.', 'info', 2000);
+  }
+}
+
+function replayTrack() {
+  if (!state.ytPlayer || !state.ytReady) return;
+  state.ytPlayer.seekTo(0, true);
+  if (!state.isPlaying) state.ytPlayer.playVideo();
+}
+
+function toggleShuffle() {
+  const settings = JSON.parse(localStorage.getItem('cipher_settings') || '{}');
+  const newVal = !settings.shuffle;
+  settings.shuffle = newVal;
+  localStorage.setItem('cipher_settings', JSON.stringify(settings));
+  // Sync settings toggle if on settings page
+  const el = $('#toggle-shuffle');
+  if (el) el.checked = newVal;
+  // Update button active state
+  const btn = $('#btn-shuffle');
+  if (btn) {
+    btn.classList.toggle('active', newVal);
+    btn.setAttribute('aria-pressed', String(newVal));
+  }
+  showToast(newVal ? 'Shuffle on 🔀' : 'Shuffle off', 'info', 2000);
+}
+
 function togglePlayPause() {
   if (!state.ytPlayer || !state.ytReady) return;
   if (state.isPlaying) {
@@ -753,14 +790,29 @@ function decodeHTMLEntities(str) {
 // ═══════════════════════════════════════════════════════════
 // YOUTUBE SEARCH
 // ═══════════════════════════════════════════════════════════
-async function searchYouTube(query) {
+/**
+ * Search YouTube for videos matching `query`.
+ * @param {string} query  - Search terms
+ * @param {string} [channelId] - Optional YouTube channel ID to restrict results.
+ *   When provided, results are ordered by viewCount; otherwise by relevance.
+ *   videoCategoryId is intentionally omitted so all video types are returned
+ *   (music, official videos, shorts, podcasts, etc.).
+ */
+async function searchYouTube(query, channelId = '') {
   const url = new URL('https://www.googleapis.com/youtube/v3/search');
   url.searchParams.set('part', 'snippet');
   url.searchParams.set('type', 'video');
-  url.searchParams.set('videoCategoryId', '10');
+  // Removed videoCategoryId restriction so ALL video types are returned
   url.searchParams.set('maxResults', '30');
   url.searchParams.set('q', query);
   url.searchParams.set('key', CONFIG.YOUTUBE_API_KEY);
+  // Order by relevance for searches, viewCount for channel browsing
+  if (channelId) {
+    url.searchParams.set('channelId', channelId);
+    url.searchParams.set('order', 'viewCount');
+  } else {
+    url.searchParams.set('order', 'relevance');
+  }
 
   const response = await fetch(url.toString());
   if (!response.ok) throw new Error(`YouTube API error: ${response.status}`);
@@ -851,7 +903,7 @@ function escapeAttr(str) {
     .replace(/>/g, '&gt;');
 }
 
-async function handleSearch(query) {
+async function handleSearch(query, channelId = '') {
   const q = query || $('#search-input')?.value.trim();
   if (!q) return;
 
@@ -861,7 +913,7 @@ async function handleSearch(query) {
   $('#search-placeholder')?.classList.add('hidden');
 
   try {
-    const items = await searchYouTube(q);
+    const items = await searchYouTube(q, channelId);
     state.searchResults = items;
     renderResults(items);
   } catch (err) {
@@ -1352,6 +1404,14 @@ function loadSettings() {
     applyDarkMode(dark);
   }
   if (langSelect) langSelect.value = settings.language ?? 'en';
+
+  // Sync player-bar shuffle button with saved setting
+  const shuffleOn = settings.shuffle ?? false;
+  const shuffleBtn = $('#btn-shuffle');
+  if (shuffleBtn) {
+    shuffleBtn.classList.toggle('active', shuffleOn);
+    shuffleBtn.setAttribute('aria-pressed', String(shuffleOn));
+  }
 }
 
 function saveSettings() {
@@ -1501,13 +1561,13 @@ function bindEvents() {
     });
   });
 
-  // ── Genre chips ──
+  // ── Genre chips — support optional channelId for NullRaze etc. ──
   $$('.genre-chip').forEach(chip => {
     chip.addEventListener('click', () => {
       $$('.genre-chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
       state.activeChip = chip.dataset.query;
-      handleSearch(chip.dataset.query);
+      handleSearch(chip.dataset.query, chip.dataset.channel || '');
     });
   });
 
@@ -1538,6 +1598,9 @@ function bindEvents() {
   // ── Player controls ──
   $('#btn-play-pause')?.addEventListener('click', togglePlayPause);
   $('#btn-next')?.addEventListener('click', playNext);
+  $('#btn-prev')?.addEventListener('click', playPrev);
+  $('#btn-replay')?.addEventListener('click', replayTrack);
+  $('#btn-shuffle')?.addEventListener('click', toggleShuffle);
 
   $('#volume-slider')?.addEventListener('input', (e) => {
     if (state.ytPlayer && state.ytReady) {
@@ -1561,8 +1624,18 @@ function bindEvents() {
     saveSettings();
   });
 
-  ['toggle-autoplay', 'toggle-hq', 'toggle-shuffle', 'toggle-soundwave', 'toggle-notifications'].forEach(id => {
+  ['toggle-autoplay', 'toggle-hq', 'toggle-soundwave', 'toggle-notifications'].forEach(id => {
     $(`#${id}`)?.addEventListener('change', saveSettings);
+  });
+
+  // Keep shuffle setting in sync between settings page toggle and player-bar button
+  $('#toggle-shuffle')?.addEventListener('change', function () {
+    saveSettings();
+    const btn = $('#btn-shuffle');
+    if (btn) {
+      btn.classList.toggle('active', this.checked);
+      btn.setAttribute('aria-pressed', String(this.checked));
+    }
   });
 
   ['repeat-mode', 'playback-speed', 'eq-preset', 'language-select'].forEach(id => {
