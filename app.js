@@ -24,12 +24,32 @@ const state = {
   pendingCode: null,        // 6-digit string
   pendingReset: null,       // { email } – set during password-reset flow
   featuredLoaded: false,    // whether trending music is already loaded
-  activeChip: 'trending music 2025'
+  activeChip: 'trending music 2025',
+  activePlan: 'free',       // currently subscribed plan
+  songsPlayed: 0,           // session play count
+  minutesListened: 0        // session listening minutes
 };
 
 // ── DOM helpers ────────────────────────────────────────────
 const $  = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
+
+// ── Listening-time timer ──────────────────────────────────
+let _listeningTimerId = null;
+
+function startListeningTimer() {
+  if (_listeningTimerId) return;
+  _listeningTimerId = setInterval(() => {
+    state.minutesListened += 1 / 60; // tick every second = 1/60 of a minute
+  }, 1000);
+}
+
+function stopListeningTimer() {
+  if (_listeningTimerId) {
+    clearInterval(_listeningTimerId);
+    _listeningTimerId = null;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════
 // CLOCK & GREETING
@@ -136,7 +156,9 @@ function updateHeaderUser() {
 // EMAIL VERIFICATION — EmailJS
 // ═══════════════════════════════════════════════════════════
 function generateCode() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  const arr = new Uint32Array(1);
+  crypto.getRandomValues(arr);
+  return String(100000 + (arr[0] % 900000));
 }
 
 function isEmailJSConfigured() {
@@ -490,15 +512,47 @@ function onPlayerStateChange(event) {
   state.isPlaying = playing;
   $('#play-icon')?.classList.toggle('hidden', playing);
   $('#pause-icon')?.classList.toggle('hidden', !playing);
+  setSoundwavePlaying(playing);
+
+  if (playing) {
+    startListeningTimer();
+  } else {
+    stopListeningTimer();
+  }
 
   if (event.data === YT.PlayerState.ENDED) {
-    const autoplay = $('#toggle-autoplay');
-    if (autoplay && autoplay.checked) playNext();
+    setSoundwavePlaying(false);
+    const settings = JSON.parse(localStorage.getItem('cipher_settings') || '{}');
+    const repeat   = settings.repeatMode || 'off';
+    if (repeat === 'one') {
+      playVideo(state.currentIndex);
+    } else if (settings.shuffle) {
+      // Shuffle: pick random track; with repeat-all wrap around is already handled by randomness
+      const next = Math.floor(Math.random() * state.searchResults.length);
+      playVideo(next);
+    } else {
+      const autoplay = $('#toggle-autoplay');
+      if (autoplay && autoplay.checked) {
+        if (repeat === 'all' && state.currentIndex >= state.searchResults.length - 1) {
+          playVideo(0);
+        } else {
+          playNext();
+        }
+      }
+    }
   }
+}
+
+function setSoundwavePlaying(playing) {
+  const sw = $('#np-soundwave');
+  if (sw) sw.classList.toggle('paused', !playing);
 }
 
 function playVideo(index) {
   if (!state.ytReady || !state.ytPlayer || index < 0 || index >= state.searchResults.length) return;
+
+  // Stop previous listening timer before starting new track
+  stopListeningTimer();
 
   state.currentIndex = index;
   const item = state.searchResults[index];
@@ -509,11 +563,40 @@ function playVideo(index) {
   state.isPlaying = true;
 
   updateNowPlaying(item);
+  updateNowPlayingPanel(item);
   showPlayerBar();
   highlightCard(index);
 
   const vol = parseInt($('#volume-slider')?.value ?? 80, 10);
   state.ytPlayer.setVolume(vol);
+
+  // Track play count and start listening timer
+  state.songsPlayed++;
+  startListeningTimer();
+  updateProfileStats();
+}
+
+function updateNowPlayingPanel(item) {
+  const panel   = $('#np-panel');
+  const art     = $('#np-panel-art');
+  const title   = $('#np-panel-title');
+  const channel = $('#np-panel-channel');
+
+  const thumb   = item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || '';
+  const titleTxt = decodeHTMLEntities(item.snippet?.title || '');
+  const ch      = item.snippet?.channelTitle || '';
+
+  if (art)     art.src = thumb;
+  if (title)   title.textContent = titleTxt;
+  if (channel) channel.textContent = ch;
+
+  const settings = JSON.parse(localStorage.getItem('cipher_settings') || '{}');
+  const showSW   = settings.showSoundwave !== false;
+  const sw       = $('#np-soundwave');
+  if (sw) sw.style.display = showSW ? 'flex' : 'none';
+
+  if (panel) panel.classList.remove('hidden');
+  setSoundwavePlaying(true);
 }
 
 function updateNowPlaying(item) {
@@ -676,6 +759,127 @@ function populateProfile() {
   if (username) username.textContent = state.user.username;
   if (email)    email.textContent = state.user.email;
   if (since)    since.textContent = `Member since ${state.user.memberSince}`;
+
+  // Pre-fill edit fields
+  const epUser = $('#ep-username');
+  const epEmail = $('#ep-email');
+  if (epUser) epUser.value = state.user.username;
+  if (epEmail) epEmail.value = state.user.email;
+
+  updateProfileStats();
+}
+
+function updateProfileStats() {
+  const songsEl  = $('#stat-songs-played');
+  const hoursEl  = $('#stat-hours');
+  const genreEl  = $('#stat-fav-genre');
+
+  if (songsEl) songsEl.textContent = state.songsPlayed;
+  if (hoursEl) hoursEl.textContent = Math.round(state.minutesListened / 60 * 10) / 10;
+  if (genreEl) {
+    // Derive from active chip label
+    const chipMap = {
+      'trending music 2025': 'Trending',
+      'hip hop hits 2025': 'Hip-Hop',
+      'pop music hits 2025': 'Pop',
+      'r&b music 2025': 'R&B',
+      'electronic music 2025': 'Electronic',
+      'latin music 2025': 'Latin'
+    };
+    genreEl.textContent = chipMap[state.activeChip] || 'Music';
+  }
+}
+
+function handleEditProfile(e) {
+  e.preventDefault();
+  const username = $('#ep-username')?.value.trim();
+  const email    = $('#ep-email')?.value.trim();
+
+  let valid = true;
+  const setErr = (id, msg) => {
+    const el = $(`#${id}`);
+    if (el) el.textContent = msg;
+    if (msg) valid = false;
+  };
+
+  setErr('err-ep-username', (username?.length ?? 0) < 2 ? 'Username must be at least 2 characters.' : '');
+
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email ?? '');
+  setErr('err-ep-email', !emailOk ? 'Please enter a valid email address.' : '');
+
+  if (!valid) return;
+
+  // Check if email is taken by another account
+  const other = getAccounts().find(a =>
+    a.email.toLowerCase() === email.toLowerCase() &&
+    a.email.toLowerCase() !== state.user.email.toLowerCase()
+  );
+  if (other) {
+    setErr('err-ep-email', 'That email is already in use by another account.');
+    return;
+  }
+
+  // Update the account in the accounts list
+  const accounts = getAccounts().map(a => {
+    if (a.email.toLowerCase() === state.user.email.toLowerCase()) {
+      return { ...a, username, email };
+    }
+    return a;
+  });
+  localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+
+  // Update session user
+  saveUser({ ...state.user, username, email });
+  updateHeaderUser();
+  populateProfile();
+
+  $('#edit-profile-section')?.classList.add('hidden');
+  showToast('Profile updated successfully!', 'success');
+}
+
+async function handleChangePassword(e) {
+  e.preventDefault();
+  const current = $('#cp-current')?.value;
+  const newPw   = $('#cp-new')?.value;
+  const confirm = $('#cp-confirm')?.value;
+
+  let valid = true;
+  const setErr = (id, msg) => {
+    const el = $(`#${id}`);
+    if (el) el.textContent = msg;
+    if (msg) valid = false;
+  };
+
+  setErr('err-cp-current', !current ? 'Please enter your current password.' : '');
+  setErr('err-cp-new',     (newPw?.length ?? 0) < 8 ? 'Password must be at least 8 characters.' : '');
+  setErr('err-cp-confirm', newPw !== confirm ? 'Passwords do not match.' : '');
+  if (!valid) return;
+
+  // Verify current password
+  const account = findAccount(state.user.email);
+  if (!account) return;
+  const currentHash = await hashPassword(current);
+  if (currentHash !== account.passwordHash) {
+    setErr('err-cp-current', 'Incorrect current password.');
+    return;
+  }
+
+  const newHash = await hashPassword(newPw);
+  const accounts = getAccounts().map(a => {
+    if (a.email.toLowerCase() === state.user.email.toLowerCase()) {
+      return { ...a, passwordHash: newHash };
+    }
+    return a;
+  });
+  localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+
+  // Clear form
+  ['cp-current', 'cp-new', 'cp-confirm'].forEach(id => {
+    const el = $(`#${id}`);
+    if (el) el.value = '';
+  });
+
+  showToast('Password changed successfully!', 'success');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -690,6 +894,8 @@ function selectPlan(plan) {
 
   if (plan === 'free') {
     section?.classList.add('hidden');
+    state.activePlan = 'free';
+    updatePlanBanner();
     return;
   }
 
@@ -733,10 +939,20 @@ function validatePayment() {
   return valid;
 }
 
+function updatePlanBanner() {
+  const nameEl  = $('#current-plan-name');
+  const badgeEl = $('#current-plan-badge');
+  const planLabels = { free: 'Free', pro: 'Pro', premium: 'Premium' };
+  if (nameEl) nameEl.textContent = planLabels[state.activePlan] || 'Free';
+  if (badgeEl) badgeEl.textContent = 'Active';
+}
+
 function handlePayment(e) {
   e.preventDefault();
   if (!validatePayment()) return;
 
+  state.activePlan = state.selectedPlan || 'pro';
+  updatePlanBanner();
   $('#payment-form')?.classList.add('hidden');
   $('#payment-success')?.classList.remove('hidden');
   showToast('Subscribed to Cipher ' + (state.selectedPlan || 'Pro') + '! 🎉', 'success');
@@ -754,13 +970,23 @@ function loadSettings() {
 
   const toggleAutoplay      = $('#toggle-autoplay');
   const toggleHq            = $('#toggle-hq');
+  const toggleShuffle       = $('#toggle-shuffle');
+  const repeatMode          = $('#repeat-mode');
+  const playbackSpeed       = $('#playback-speed');
+  const eqPreset            = $('#eq-preset');
+  const toggleSoundwave     = $('#toggle-soundwave');
   const toggleNotifications = $('#toggle-notifications');
   const toggleDark          = $('#toggle-dark-mode');
   const langSelect          = $('#language-select');
 
-  if (toggleAutoplay)      toggleAutoplay.checked      = settings.autoplay      ?? true;
-  if (toggleHq)            toggleHq.checked            = settings.hq            ?? false;
-  if (toggleNotifications) toggleNotifications.checked = settings.notifications ?? true;
+  if (toggleAutoplay)      toggleAutoplay.checked      = settings.autoplay       ?? true;
+  if (toggleHq)            toggleHq.checked            = settings.hq             ?? false;
+  if (toggleShuffle)       toggleShuffle.checked       = settings.shuffle        ?? false;
+  if (repeatMode)          repeatMode.value            = settings.repeatMode     ?? 'off';
+  if (playbackSpeed)       playbackSpeed.value         = settings.playbackSpeed  ?? '1';
+  if (eqPreset)            eqPreset.value              = settings.eqPreset       ?? 'flat';
+  if (toggleSoundwave)     toggleSoundwave.checked     = settings.showSoundwave  !== false;
+  if (toggleNotifications) toggleNotifications.checked = settings.notifications  ?? true;
   if (toggleDark) {
     const dark = settings.darkMode ?? true;
     toggleDark.checked = dark;
@@ -771,11 +997,16 @@ function loadSettings() {
 
 function saveSettings() {
   const settings = {
-    autoplay:      $('#toggle-autoplay')?.checked      ?? true,
-    hq:            $('#toggle-hq')?.checked            ?? false,
-    notifications: $('#toggle-notifications')?.checked ?? true,
-    darkMode:      $('#toggle-dark-mode')?.checked     ?? true,
-    language:      $('#language-select')?.value        ?? 'en'
+    autoplay:       $('#toggle-autoplay')?.checked       ?? true,
+    hq:             $('#toggle-hq')?.checked             ?? false,
+    shuffle:        $('#toggle-shuffle')?.checked        ?? false,
+    repeatMode:     $('#repeat-mode')?.value             ?? 'off',
+    playbackSpeed:  $('#playback-speed')?.value          ?? '1',
+    eqPreset:       $('#eq-preset')?.value               ?? 'flat',
+    showSoundwave:  $('#toggle-soundwave')?.checked      !== false,
+    notifications:  $('#toggle-notifications')?.checked  ?? true,
+    darkMode:       $('#toggle-dark-mode')?.checked      ?? true,
+    language:       $('#language-select')?.value         ?? 'en'
   };
   localStorage.setItem('cipher_settings', JSON.stringify(settings));
 }
@@ -953,11 +1184,13 @@ function bindEvents() {
     saveSettings();
   });
 
-  ['toggle-autoplay', 'toggle-hq', 'toggle-notifications'].forEach(id => {
+  ['toggle-autoplay', 'toggle-hq', 'toggle-shuffle', 'toggle-soundwave', 'toggle-notifications'].forEach(id => {
     $(`#${id}`)?.addEventListener('change', saveSettings);
   });
 
-  $('#language-select')?.addEventListener('change', saveSettings);
+  ['repeat-mode', 'playback-speed', 'eq-preset', 'language-select'].forEach(id => {
+    $(`#${id}`)?.addEventListener('change', saveSettings);
+  });
 
   // ── Sign out ──
   $('#btn-signout')?.addEventListener('click', () => {
@@ -981,9 +1214,70 @@ function bindEvents() {
     }
   });
 
-  // ── Profile edit placeholder ──
+  // ── Profile edit ──
   $('#edit-profile-btn')?.addEventListener('click', () => {
-    showToast('Profile editing coming soon!', 'info');
+    const section = $('#edit-profile-section');
+    if (!section) return;
+    const hidden = section.classList.contains('hidden');
+    section.classList.toggle('hidden', !hidden);
+    if (hidden) {
+      // Pre-fill with current values when opening
+      const epUser = $('#ep-username');
+      const epEmail = $('#ep-email');
+      if (epUser) epUser.value = state.user?.username || '';
+      if (epEmail) epEmail.value = state.user?.email || '';
+      ['err-ep-username','err-ep-email'].forEach(id => { const el = $(`#${id}`); if (el) el.textContent = ''; });
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+
+  $('#cancel-edit-btn')?.addEventListener('click', () => {
+    $('#edit-profile-section')?.classList.add('hidden');
+  });
+
+  $('#edit-profile-form')?.addEventListener('submit', handleEditProfile);
+
+  $('#change-password-form')?.addEventListener('submit', handleChangePassword);
+
+  // ── Now Playing panel close ──
+  $('#np-panel-close')?.addEventListener('click', () => {
+    $('#np-panel')?.classList.add('hidden');
+  });
+
+  // ── Settings: Clear history ──
+  $('#btn-clear-history')?.addEventListener('click', () => {
+    state.songsPlayed = 0;
+    state.minutesListened = 0;
+    updateProfileStats();
+    showToast('Listening history cleared.', 'success');
+  });
+
+  // ── Settings: Export data ──
+  $('#btn-export-data')?.addEventListener('click', () => {
+    if (!state.user) return;
+    const data = {
+      profile: state.user,
+      settings: JSON.parse(localStorage.getItem('cipher_settings') || '{}'),
+      exportedAt: new Date().toISOString()
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'cipher-music-data.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Data exported!', 'success');
+  });
+
+  // ── Settings: Change password → profile edit ──
+  $('#btn-change-password')?.addEventListener('click', () => {
+    showView('profile');
+    setTimeout(() => {
+      $('#edit-profile-section')?.classList.remove('hidden');
+      const cpCurrent = $('#cp-current');
+      if (cpCurrent) { cpCurrent.focus(); cpCurrent.scrollIntoView({ behavior: 'smooth' }); }
+    }, 100);
   });
 
   // ── Keyboard: Escape closes verify/signup/reset ──
@@ -1014,8 +1308,15 @@ function init() {
   updateClock();
   setInterval(updateClock, 1000);
   bindEvents();
+  updatePlanBanner();
 
-  if (state.user) {
+  // Hash-based routing: allow direct links to signup/reset
+  const hash = window.location.hash.slice(1);
+  if (hash === 'signup' && !state.user) {
+    showView('signup');
+  } else if (hash === 'reset' && !state.user) {
+    showView('forgot');
+  } else if (state.user) {
     showView('player');
   } else {
     showView('login');
