@@ -22,6 +22,7 @@ const state = {
   selectedPlan: null,
   pendingSignup: null,      // { username, email, passwordHash }
   pendingCode: null,        // 6-digit string
+  pendingReset: null,       // { email } – set during password-reset flow
   featuredLoaded: false,    // whether trending music is already loaded
   activeChip: 'trending music 2025'
 };
@@ -234,6 +235,8 @@ async function handleSignup(e) {
   if (hint) hint.classList.add('hidden');
   const emailDisp = $('#verify-email-display');
   if (emailDisp) emailDisp.textContent = email;
+  const subtitle = $('#verify-subtitle');
+  if (subtitle) subtitle.textContent = 'We sent a 6-digit code to';
 
   // Clear OTP boxes
   $$('.otp-box').forEach(box => { box.value = ''; box.classList.remove('filled'); });
@@ -271,7 +274,14 @@ function handleVerify() {
 
   if (errEl) errEl.textContent = '';
 
-  // Create the account
+  if (state.pendingReset) {
+    // Password-reset flow: proceed to the new-password form
+    state.pendingCode = null;
+    showView('reset');
+    return;
+  }
+
+  // Sign-up flow: create the account
   saveAccount(state.pendingSignup);
 
   // Log the user in immediately
@@ -291,13 +301,100 @@ function handleVerify() {
 }
 
 async function handleResendCode() {
+  if (state.pendingReset) {
+    showToast('Resending code…', 'info');
+    await sendVerificationEmail(state.pendingReset.email, state.pendingReset.email, state.pendingCode);
+    return;
+  }
   if (!state.pendingSignup || !state.pendingCode) return;
   showToast('Resending code…', 'info');
   await sendVerificationEmail(state.pendingSignup.email, state.pendingSignup.username, state.pendingCode);
 }
 
 // ═══════════════════════════════════════════════════════════
-// LOGIN
+// FORGOT / RESET PASSWORD FLOW
+// ═══════════════════════════════════════════════════════════
+async function handleForgotSubmit(e) {
+  e.preventDefault();
+  const email  = $('#forgot-email')?.value.trim();
+  const errEl  = $('#err-forgot-email');
+
+  if (!email) {
+    if (errEl) errEl.textContent = 'Please enter your email address.';
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (errEl) errEl.textContent = 'Please enter a valid email address.';
+    return;
+  }
+  if (errEl) errEl.textContent = '';
+
+  const account = findAccount(email);
+  if (!account) {
+    if (errEl) errEl.textContent = 'No account found with that email address.';
+    return;
+  }
+
+  const btn = $('#send-reset-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+  const code = generateCode();
+  state.pendingReset  = { email: account.email };
+  state.pendingSignup = null;
+  state.pendingCode   = code;
+
+  // Prepare verify view
+  const hint = $('#demo-code-hint');
+  if (hint) hint.classList.add('hidden');
+  const emailDisp = $('#verify-email-display');
+  if (emailDisp) emailDisp.textContent = account.email;
+  const subtitle = $('#verify-subtitle');
+  if (subtitle) subtitle.textContent = 'We sent a password-reset code to';
+
+  $$('.otp-box').forEach(box => { box.value = ''; box.classList.remove('filled'); });
+  const otpErr = $('#err-otp');
+  if (otpErr) otpErr.textContent = '';
+
+  await sendVerificationEmail(account.email, account.username, code);
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Send Reset Code'; }
+
+  showView('verify');
+}
+
+function handleResetPassword(e) {
+  e.preventDefault();
+  const password = $('#reset-password')?.value;
+  const confirm  = $('#reset-confirm')?.value;
+
+  let valid = true;
+  const setErr = (id, msg) => {
+    const el = $(`#${id}`);
+    if (el) el.textContent = msg;
+    if (msg) valid = false;
+  };
+
+  setErr('err-reset-password', (password?.length ?? 0) < 8 ? 'Password must be at least 8 characters.' : '');
+  setErr('err-reset-confirm',  password !== confirm ? 'Passwords do not match.' : '');
+  if (!valid) return;
+
+  hashPassword(password).then(passwordHash => {
+    const accounts = getAccounts().map(a => {
+      if (a.email.toLowerCase() === state.pendingReset.email.toLowerCase()) {
+        return { ...a, passwordHash };
+      }
+      return a;
+    });
+    localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+
+    state.pendingReset = null;
+
+    showToast('Password updated! Please sign in with your new password.', 'success');
+    showView('login');
+  });
+}
+
+
 // ═══════════════════════════════════════════════════════════
 function validateLogin() {
   const emailOrUser = $('#login-email')?.value.trim();
@@ -360,7 +457,7 @@ function showView(viewName) {
   if (target) target.classList.add('active');
 
   const sidebar = $('#sidebar');
-  const noSidebar = ['login', 'signup', 'verify'].includes(viewName);
+  const noSidebar = ['login', 'signup', 'verify', 'forgot', 'reset'].includes(viewName);
 
   if (noSidebar) {
     sidebar.classList.add('hidden');
@@ -705,6 +802,35 @@ function bindEvents() {
     }
   });
 
+  // ── Forgot password link ──
+  $('#forgot-link')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    const emailInput = $('#forgot-email');
+    if (emailInput) emailInput.value = '';
+    const errEl = $('#err-forgot-email');
+    if (errEl) errEl.textContent = '';
+    showView('forgot');
+  });
+
+  // ── Back to login from forgot ──
+  $('#back-to-login-from-forgot')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    showView('login');
+  });
+
+  // ── Forgot password form ──
+  $('#forgot-form')?.addEventListener('submit', handleForgotSubmit);
+
+  // ── Reset password form ──
+  $('#reset-form')?.addEventListener('submit', handleResetPassword);
+
+  // ── Password toggle (reset) ──
+  $('#reset-toggle-pw')?.addEventListener('click', function () {
+    const pwInput = $('#reset-password');
+    if (!pwInput) return;
+    pwInput.type = pwInput.type === 'text' ? 'password' : 'text';
+  });
+
   // ── Go to sign-up ──
   $('#signup-link')?.addEventListener('click', (e) => {
     e.preventDefault();
@@ -766,10 +892,16 @@ function bindEvents() {
     handleResendCode();
   });
 
-  // ── Back to sign-up from verify ──
+  // ── Back from verify: goes to signup (sign-up flow) or forgot (reset flow) ──
   $('#back-to-signup')?.addEventListener('click', (e) => {
     e.preventDefault();
-    showView('signup');
+    if (state.pendingReset) {
+      state.pendingReset = null;
+      state.pendingCode  = null;
+      showView('forgot');
+    } else {
+      showView('signup');
+    }
   });
 
   // ── Sidebar navigation ──
@@ -854,10 +986,20 @@ function bindEvents() {
     showToast('Profile editing coming soon!', 'info');
   });
 
-  // ── Keyboard: Escape closes verify/signup ──
+  // ── Keyboard: Escape closes verify/signup/reset ──
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && state.currentView === 'verify') {
-      showView('signup');
+    if (e.key === 'Escape') {
+      if (state.currentView === 'verify') {
+        if (state.pendingReset) {
+          state.pendingReset = null;
+          state.pendingCode  = null;
+          showView('forgot');
+        } else {
+          showView('signup');
+        }
+      } else if (state.currentView === 'reset') {
+        showView('forgot');
+      }
     }
   });
 }

@@ -110,6 +110,7 @@
                 </label>
               </div>
               <button type="submit" class="btn-primary btn-full" id="signin-btn">Sign In to Cipher</button>
+              <p class="auth-footer"><a href="#" id="forgot-link">Forgot password?</a></p>
               <p class="auth-footer">Don't have an account? <a href="#" id="signup-link">Sign Up</a></p>
             </form>
           </div>
@@ -184,7 +185,7 @@
                 <polyline points="22,6 12,13 2,6"/>
               </svg>
               <h1>Check Your Email</h1>
-              <p class="auth-subtitle">We sent a 6-digit code to</p>
+              <p class="auth-subtitle" id="verify-subtitle">We sent a 6-digit code to</p>
               <p id="verify-email-display" class="verify-email-addr"></p>
             </div>
 
@@ -211,6 +212,68 @@
               &nbsp;·&nbsp;
               <a href="#" id="back-to-signup">Change Email</a>
             </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── FORGOT PASSWORD VIEW ─── -->
+      <section id="view-forgot" class="view">
+        <div class="auth-container">
+          <div class="auth-card glass-card">
+            <div class="auth-logo">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="1.5">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <h1>Reset Password</h1>
+              <p class="auth-subtitle">Enter your email to receive a reset code</p>
+            </div>
+            <form id="forgot-form" novalidate>
+              <div class="form-group">
+                <label for="forgot-email">Email Address</label>
+                <input type="email" id="forgot-email" placeholder="Enter your account email" autocomplete="email" />
+                <span class="field-error" id="err-forgot-email"></span>
+              </div>
+              <button type="submit" class="btn-primary btn-full" id="send-reset-btn">Send Reset Code</button>
+              <p class="auth-footer">Remember your password? <a href="#" id="back-to-login-from-forgot">Sign In</a></p>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── RESET PASSWORD VIEW ─── -->
+      <section id="view-reset" class="view">
+        <div class="auth-container">
+          <div class="auth-card glass-card">
+            <div class="auth-logo">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="1.5">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              <h1>New Password</h1>
+              <p class="auth-subtitle">Choose a new password for your account</p>
+            </div>
+            <form id="reset-form" novalidate>
+              <div class="form-group">
+                <label for="reset-password">New Password</label>
+                <div class="password-wrap">
+                  <input type="password" id="reset-password" placeholder="Create a new strong password" autocomplete="new-password" />
+                  <button type="button" class="toggle-pw" id="reset-toggle-pw" aria-label="Toggle password visibility">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  </button>
+                </div>
+                <span class="field-error" id="err-reset-password"></span>
+              </div>
+              <div class="form-group">
+                <label for="reset-confirm">Confirm New Password</label>
+                <div class="password-wrap">
+                  <input type="password" id="reset-confirm" placeholder="Re-enter your new password" autocomplete="new-password" />
+                </div>
+                <span class="field-error" id="err-reset-confirm"></span>
+              </div>
+              <button type="submit" class="btn-primary btn-full" id="save-reset-btn">Save New Password</button>
+            </form>
           </div>
         </div>
       </section>
