@@ -49,20 +49,38 @@ Open `app.js` and replace the placeholder key at the top of the file:
 
 ```js
 const CONFIG = {
-  YOUTUBE_API_KEY: "YOUR_API_KEY_HERE"
+  YOUTUBE_API_KEY: "YOUR_API_KEY_HERE",
+  ...
 };
 ```
 
 You can get a free key from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials).  
 Make sure the **YouTube Data API v3** is enabled for your project.
 
-Optionally, copy `.env.example` to `.env` and store your key there for reference (the `.env` file is git-ignored):
+### 3. (Optional) Set up Email Verification — EmailJS
 
-```bash
-cp .env.example .env
+To make the sign-up verification email actually send, create a free account at [emailjs.com](https://www.emailjs.com):
+
+1. Create an **Email Service** (Gmail, Outlook, etc.) in the EmailJS dashboard → note the **Service ID**
+2. Create an **Email Template** with the following variables:
+   - `{{to_name}}` — recipient's username
+   - `{{to_email}}` — recipient's email address  
+   - `{{verification_code}}` — the 6-digit code
+3. Copy your **Public Key** from Account → General
+4. Update `app.js`:
+
+```js
+const CONFIG = {
+  YOUTUBE_API_KEY:     "your-yt-key",
+  EMAILJS_SERVICE_ID:  "service_xxxxxxx",   // from EmailJS dashboard
+  EMAILJS_TEMPLATE_ID: "template_xxxxxxx",  // from EmailJS dashboard
+  EMAILJS_PUBLIC_KEY:  "xxxxxxxxxxxxxxx"    // from EmailJS Account > General
+};
 ```
 
-### 3. Open in a browser
+> **Without EmailJS configured:** The app still works. A demo code is shown on-screen in the verification view so you can complete sign-up without real email.
+
+### 4. Open in a browser
 
 No build step required. Simply open `index.html` in your browser:
 
@@ -71,8 +89,6 @@ open index.html   # macOS
 xdg-open index.html  # Linux
 # or just double-click index.html in your file manager
 ```
-
-> **Note:** YouTube API calls require a valid API key. Without one, search will fail. The rest of the UI (login, profile, settings, payment) works without a key.
 
 ---
 

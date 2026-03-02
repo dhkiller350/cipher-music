@@ -4,19 +4,27 @@
 
 // ── Configuration ─────────────────────────────────────────
 const CONFIG = {
-  YOUTUBE_API_KEY: "AIzaSyAxMywGGrwQ2FoXClwrOn6LmuWPuYGCKBY"
+  YOUTUBE_API_KEY:     "AIzaSyAxMywGGrwQ2FoXClwrOn6LmuWPuYGCKBY",
+  // EmailJS credentials — replace with your own from https://emailjs.com
+  EMAILJS_SERVICE_ID:  "YOUR_SERVICE_ID",
+  EMAILJS_TEMPLATE_ID: "YOUR_TEMPLATE_ID",
+  EMAILJS_PUBLIC_KEY:  "YOUR_PUBLIC_KEY"
 };
 
 // ── State ──────────────────────────────────────────────────
 const state = {
-  user: null,          // { username, email, memberSince }
+  user: null,               // { username, email, memberSince }
   currentView: 'login',
   searchResults: [],
   currentIndex: -1,
   ytPlayer: null,
   ytReady: false,
   isPlaying: false,
-  selectedPlan: null
+  selectedPlan: null,
+  pendingSignup: null,      // { username, email, passwordHash }
+  pendingCode: null,        // 6-digit string
+  featuredLoaded: false,    // whether trending music is already loaded
+  activeChip: 'trending music 2025'
 };
 
 // ── DOM helpers ────────────────────────────────────────────
@@ -43,7 +51,58 @@ function updateClock() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// AUTH
+// TOAST NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════
+function showToast(message, type = 'info', duration = 4000) {
+  const container = $('#toast-container');
+  if (!container) return;
+
+  const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `<span>${icons[type] || ''}</span><span>${escapeHTML(message)}</span>`;
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.classList.add('toast-out');
+    toast.addEventListener('animationend', () => toast.remove(), { once: true });
+  }, duration);
+}
+
+// ═══════════════════════════════════════════════════════════
+// PASSWORD HASHING (Web Crypto API)
+// ═══════════════════════════════════════════════════════════
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuf))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+// ═══════════════════════════════════════════════════════════
+// ACCOUNTS (multi-user localStorage)
+// ═══════════════════════════════════════════════════════════
+function getAccounts() {
+  try { return JSON.parse(localStorage.getItem('cipher_accounts') || '[]'); } catch { return []; }
+}
+
+function saveAccount(account) {
+  const accounts = getAccounts();
+  accounts.push(account);
+  localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+}
+
+function findAccount(emailOrUsername) {
+  const needle = emailOrUsername.toLowerCase();
+  return getAccounts().find(a =>
+    a.email.toLowerCase() === needle || a.username.toLowerCase() === needle
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// AUTH — Session
 // ═══════════════════════════════════════════════════════════
 function loadUser() {
   const stored = localStorage.getItem('cipher_user');
@@ -73,11 +132,57 @@ function updateHeaderUser() {
   }
 }
 
-// ── Login form validation ──────────────────────────────────
-function validateLogin() {
-  const username = $('#login-username').value.trim();
-  const email    = $('#login-email').value.trim();
-  const password = $('#login-password').value;
+// ═══════════════════════════════════════════════════════════
+// EMAIL VERIFICATION — EmailJS
+// ═══════════════════════════════════════════════════════════
+function generateCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function isEmailJSConfigured() {
+  return CONFIG.EMAILJS_SERVICE_ID !== 'YOUR_SERVICE_ID' &&
+         CONFIG.EMAILJS_PUBLIC_KEY  !== 'YOUR_PUBLIC_KEY';
+}
+
+async function sendVerificationEmail(toEmail, toName, code) {
+  if (!isEmailJSConfigured()) {
+    // Show demo hint instead of sending
+    const hint = $('#demo-code-hint');
+    const val  = $('#demo-code-value');
+    if (hint) hint.classList.remove('hidden');
+    if (val)  val.textContent = code;
+    return;
+  }
+
+  try {
+    if (typeof emailjs === 'undefined') throw new Error('EmailJS not loaded');
+    emailjs.init(CONFIG.EMAILJS_PUBLIC_KEY);
+    await emailjs.send(CONFIG.EMAILJS_SERVICE_ID, CONFIG.EMAILJS_TEMPLATE_ID, {
+      to_email:          toEmail,
+      to_name:           toName,
+      verification_code: code
+    });
+    showToast('Verification code sent to ' + toEmail, 'success');
+  } catch (err) {
+    console.warn('EmailJS failed:', err);
+    // Fallback to demo hint
+    const hint = $('#demo-code-hint');
+    const val  = $('#demo-code-value');
+    if (hint) hint.classList.remove('hidden');
+    if (val)  val.textContent = code;
+    showToast('Email sending failed — demo code shown on screen', 'info');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SIGN-UP FLOW
+// ═══════════════════════════════════════════════════════════
+function validateSignup() {
+  const username = $('#su-username')?.value.trim();
+  const email    = $('#su-email')?.value.trim();
+  const password = $('#su-password')?.value;
+  const confirm  = $('#su-confirm')?.value;
+  const terms    = $('#su-terms')?.checked;
 
   let valid = true;
 
@@ -87,21 +192,157 @@ function validateLogin() {
     if (msg) valid = false;
   };
 
-  setErr('err-username', username.length < 2 ? 'Username must be at least 2 characters.' : '');
-  setErr('err-email',    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? 'Please enter a valid email address.' : '');
-  setErr('err-password', password.length < 6 ? 'Password must be at least 6 characters.' : '');
+  setErr('err-su-username', (username?.length ?? 0) < 2 ? 'Username must be at least 2 characters.' : '');
+
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email ?? '');
+  setErr('err-su-email', !emailOk ? 'Please enter a valid email address.' : '');
+
+  if (emailOk && findAccount(email ?? '')) {
+    setErr('err-su-email', 'An account with this email already exists. Sign in instead.');
+  }
+
+  setErr('err-su-password', (password?.length ?? 0) < 8 ? 'Password must be at least 8 characters.' : '');
+  setErr('err-su-confirm',  password !== confirm ? 'Passwords do not match.' : '');
+  setErr('err-su-terms',    !terms ? 'You must agree to the terms to continue.' : '');
 
   return valid;
 }
 
-function handleLogin(e) {
+async function handleSignup(e) {
+  e.preventDefault();
+  if (!validateSignup()) return;
+
+  const username = $('#su-username').value.trim();
+  const email    = $('#su-email').value.trim();
+  const password = $('#su-password').value;
+
+  const btn = $('#create-account-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+  const passwordHash = await hashPassword(password);
+  const code = generateCode();
+
+  state.pendingSignup = {
+    username,
+    email,
+    passwordHash,
+    memberSince: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+  };
+  state.pendingCode = code;
+
+  // Reset verify view state
+  const hint = $('#demo-code-hint');
+  if (hint) hint.classList.add('hidden');
+  const emailDisp = $('#verify-email-display');
+  if (emailDisp) emailDisp.textContent = email;
+
+  // Clear OTP boxes
+  $$('.otp-box').forEach(box => { box.value = ''; box.classList.remove('filled'); });
+  $('#err-otp').textContent = '';
+
+  await sendVerificationEmail(email, username, code);
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Create Account'; }
+
+  showView('verify');
+}
+
+// ═══════════════════════════════════════════════════════════
+// VERIFY FLOW
+// ═══════════════════════════════════════════════════════════
+function getOtpValue() {
+  return $$('.otp-box').map(b => b.value).join('');
+}
+
+function handleVerify() {
+  const entered = getOtpValue();
+  const errEl   = $('#err-otp');
+
+  if (entered.length < 6) {
+    if (errEl) errEl.textContent = 'Please enter all 6 digits.';
+    return;
+  }
+
+  if (entered !== state.pendingCode) {
+    if (errEl) errEl.textContent = 'Incorrect code. Please try again.';
+    $$('.otp-box').forEach(b => b.classList.add('error'));
+    setTimeout(() => $$('.otp-box').forEach(b => b.classList.remove('error')), 600);
+    return;
+  }
+
+  if (errEl) errEl.textContent = '';
+
+  // Create the account
+  saveAccount(state.pendingSignup);
+
+  // Log the user in immediately
+  const user = {
+    username:    state.pendingSignup.username,
+    email:       state.pendingSignup.email,
+    memberSince: state.pendingSignup.memberSince
+  };
+  saveUser(user);
+  updateHeaderUser();
+
+  state.pendingSignup = null;
+  state.pendingCode   = null;
+
+  showToast('Welcome to Cipher Music, ' + user.username + '! 🎵', 'success');
+  showView('player');
+}
+
+async function handleResendCode() {
+  if (!state.pendingSignup || !state.pendingCode) return;
+  showToast('Resending code…', 'info');
+  await sendVerificationEmail(state.pendingSignup.email, state.pendingSignup.username, state.pendingCode);
+}
+
+// ═══════════════════════════════════════════════════════════
+// LOGIN
+// ═══════════════════════════════════════════════════════════
+function validateLogin() {
+  const emailOrUser = $('#login-email')?.value.trim();
+  const password    = $('#login-password')?.value;
+
+  let valid = true;
+
+  const setErr = (id, msg) => {
+    const el = $(`#${id}`);
+    if (el) el.textContent = msg;
+    if (msg) valid = false;
+  };
+
+  setErr('err-login-email',    !emailOrUser ? 'Please enter your email or username.' : '');
+  setErr('err-login-password', (password?.length ?? 0) < 1 ? 'Please enter your password.' : '');
+
+  return valid;
+}
+
+async function handleLogin(e) {
   e.preventDefault();
   if (!validateLogin()) return;
 
+  const emailOrUser = $('#login-email').value.trim();
+  const password    = $('#login-password').value;
+
+  const account = findAccount(emailOrUser);
+  if (!account) {
+    const el = $('#err-login-email');
+    if (el) el.textContent = 'No account found with that email or username.';
+    return;
+  }
+
+  const passwordHash = await hashPassword(password);
+  if (passwordHash !== account.passwordHash) {
+    const el = $('#err-login-password');
+    if (el) el.textContent = 'Incorrect password.';
+    return;
+  }
+
   const user = {
-    username:    $('#login-username').value.trim(),
-    email:       $('#login-email').value.trim(),
-    memberSince: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+    username:    account.username,
+    email:       account.email,
+    memberSince: account.memberSince
   };
 
   saveUser(user);
@@ -115,14 +356,14 @@ function handleLogin(e) {
 function showView(viewName) {
   state.currentView = viewName;
 
-  // Toggle views
   $$('.view').forEach(v => v.classList.remove('active'));
   const target = $(`#view-${viewName}`);
   if (target) target.classList.add('active');
 
-  // Sidebar visibility
   const sidebar = $('#sidebar');
-  if (viewName === 'login') {
+  const noSidebar = ['login', 'signup', 'verify'].includes(viewName);
+
+  if (noSidebar) {
     sidebar.classList.add('hidden');
   } else {
     sidebar.classList.remove('hidden');
@@ -131,24 +372,20 @@ function showView(viewName) {
     });
   }
 
-  // Populate profile on switch
   if (viewName === 'profile') populateProfile();
+  if (viewName === 'player' && !state.featuredLoaded) loadFeaturedMusic();
 }
 
 // ═══════════════════════════════════════════════════════════
 // YOUTUBE IFrame API
 // ═══════════════════════════════════════════════════════════
-
-// Called by YouTube IFrame API when ready
 window.onYouTubeIframeAPIReady = function () {
   state.ytReady = true;
   state.ytPlayer = new YT.Player('yt-player', {
     height: '1',
     width: '1',
     playerVars: { autoplay: 0, controls: 0 },
-    events: {
-      onStateChange: onPlayerStateChange
-    }
+    events: { onStateChange: onPlayerStateChange }
   });
 };
 
@@ -158,12 +395,9 @@ function onPlayerStateChange(event) {
   $('#play-icon')?.classList.toggle('hidden', playing);
   $('#pause-icon')?.classList.toggle('hidden', !playing);
 
-  // Auto-next when video ends
   if (event.data === YT.PlayerState.ENDED) {
     const autoplay = $('#toggle-autoplay');
-    if (autoplay && autoplay.checked) {
-      playNext();
-    }
+    if (autoplay && autoplay.checked) playNext();
   }
 }
 
@@ -178,12 +412,10 @@ function playVideo(index) {
   state.ytPlayer.loadVideoById(videoId);
   state.isPlaying = true;
 
-  // Update UI
   updateNowPlaying(item);
   showPlayerBar();
   highlightCard(index);
 
-  // Set volume
   const vol = parseInt($('#volume-slider')?.value ?? 80, 10);
   state.ytPlayer.setVolume(vol);
 }
@@ -207,16 +439,12 @@ function showPlayerBar() {
 }
 
 function highlightCard(index) {
-  $$('.result-card').forEach((c, i) => {
-    c.classList.toggle('playing', i === index);
-  });
+  $$('.result-card').forEach((c, i) => c.classList.toggle('playing', i === index));
 }
 
 function playNext() {
   const next = state.currentIndex + 1;
-  if (next < state.searchResults.length) {
-    playVideo(next);
-  }
+  if (next < state.searchResults.length) playVideo(next);
 }
 
 function togglePlayPause() {
@@ -241,7 +469,7 @@ async function searchYouTube(query) {
   const url = new URL('https://www.googleapis.com/youtube/v3/search');
   url.searchParams.set('part', 'snippet');
   url.searchParams.set('type', 'video');
-  url.searchParams.set('videoCategoryId', '10'); // Music
+  url.searchParams.set('videoCategoryId', '10');
   url.searchParams.set('maxResults', '16');
   url.searchParams.set('q', query);
   url.searchParams.set('key', CONFIG.YOUTUBE_API_KEY);
@@ -253,8 +481,8 @@ async function searchYouTube(query) {
 }
 
 function renderResults(items) {
-  const grid    = $('#search-results');
-  const noRes   = $('#no-results');
+  const grid        = $('#search-results');
+  const noRes       = $('#no-results');
   const placeholder = $('#search-placeholder');
 
   if (placeholder) placeholder.classList.add('hidden');
@@ -283,7 +511,6 @@ function renderResults(items) {
     `;
   }).join('');
 
-  // Attach play button listeners
   $$('.result-play-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -291,11 +518,8 @@ function renderResults(items) {
     });
   });
 
-  // Also allow clicking anywhere on the card
   $$('.result-card').forEach(card => {
-    card.addEventListener('click', () => {
-      playVideo(parseInt(card.dataset.index, 10));
-    });
+    card.addEventListener('click', () => playVideo(parseInt(card.dataset.index, 10)));
   });
 }
 
@@ -314,9 +538,9 @@ function escapeAttr(str) {
     .replace(/>/g, '&gt;');
 }
 
-async function handleSearch() {
-  const query = $('#search-input')?.value.trim();
-  if (!query) return;
+async function handleSearch(query) {
+  const q = query || $('#search-input')?.value.trim();
+  if (!q) return;
 
   const grid = $('#search-results');
   grid.innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
@@ -324,13 +548,19 @@ async function handleSearch() {
   $('#search-placeholder')?.classList.add('hidden');
 
   try {
-    const items = await searchYouTube(query);
+    const items = await searchYouTube(q);
     state.searchResults = items;
     renderResults(items);
   } catch (err) {
     console.error('Search failed:', err);
     grid.innerHTML = `<div class="empty-state"><p>Search failed. Check your API key or network connection.</p></div>`;
   }
+}
+
+// ── Auto-load featured/trending music when player first opens ──
+function loadFeaturedMusic() {
+  state.featuredLoaded = true;
+  handleSearch(state.activeChip);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -413,6 +643,7 @@ function handlePayment(e) {
 
   $('#payment-form')?.classList.add('hidden');
   $('#payment-success')?.classList.remove('hidden');
+  showToast('Subscribed to Cipher ' + (state.selectedPlan || 'Pro') + '! 🎉', 'success');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -461,7 +692,7 @@ function bindEvents() {
   // ── Login form ──
   $('#login-form')?.addEventListener('submit', handleLogin);
 
-  // ── Password toggle ──
+  // ── Password toggle (login) ──
   $('#toggle-pw-btn')?.addEventListener('click', () => {
     const pwInput = $('#login-password');
     const eyeIcon = $('#pw-eye-icon');
@@ -475,18 +706,71 @@ function bindEvents() {
     }
   });
 
-  // ── Sign-up link ──
+  // ── Go to sign-up ──
   $('#signup-link')?.addEventListener('click', (e) => {
     e.preventDefault();
-    $('#signup-modal')?.classList.remove('hidden');
+    showView('signup');
   });
 
-  $('#modal-close')?.addEventListener('click', () => {
-    $('#signup-modal')?.classList.add('hidden');
+  // ── Go back to login from sign-up ──
+  $('#signin-link')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    showView('login');
   });
 
-  $('#signup-modal .modal-overlay')?.addEventListener('click', () => {
-    $('#signup-modal')?.classList.add('hidden');
+  // ── Sign-up form ──
+  $('#signup-form')?.addEventListener('submit', handleSignup);
+
+  // ── Password toggle (sign-up) ──
+  $('#su-toggle-pw')?.addEventListener('click', function () {
+    const pwInput = $('#su-password');
+    if (!pwInput) return;
+    pwInput.type = pwInput.type === 'text' ? 'password' : 'text';
+  });
+
+  // ── OTP auto-advance & backspace ──
+  $$('.otp-box').forEach((box, idx, boxes) => {
+    box.addEventListener('input', () => {
+      const val = box.value.replace(/\D/g, '');
+      box.value = val;
+      box.classList.toggle('filled', val.length > 0);
+      if (val && idx < boxes.length - 1) boxes[idx + 1].focus();
+    });
+
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' && !box.value && idx > 0) {
+        boxes[idx - 1].focus();
+        boxes[idx - 1].value = '';
+        boxes[idx - 1].classList.remove('filled');
+      }
+    });
+
+    // Allow paste of full code into first box
+    box.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
+      boxes.forEach((b, i) => {
+        b.value = text[i] || '';
+        b.classList.toggle('filled', !!text[i]);
+      });
+      const focusIdx = Math.min(text.length, boxes.length - 1);
+      boxes[focusIdx].focus();
+    });
+  });
+
+  // ── Verify button ──
+  $('#verify-btn')?.addEventListener('click', handleVerify);
+
+  // ── Resend code ──
+  $('#resend-code-link')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleResendCode();
+  });
+
+  // ── Back to sign-up from verify ──
+  $('#back-to-signup')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    showView('signup');
   });
 
   // ── Sidebar navigation ──
@@ -496,8 +780,18 @@ function bindEvents() {
     });
   });
 
+  // ── Genre chips ──
+  $$('.genre-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      $$('.genre-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      state.activeChip = chip.dataset.query;
+      handleSearch(chip.dataset.query);
+    });
+  });
+
   // ── Search ──
-  $('#search-btn')?.addEventListener('click', handleSearch);
+  $('#search-btn')?.addEventListener('click', () => handleSearch());
   $('#search-input')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handleSearch();
   });
@@ -519,7 +813,6 @@ function bindEvents() {
 
   // ── Payment form ──
   $('#payment-form')?.addEventListener('submit', handlePayment);
-
   $('#card-number')?.addEventListener('input', function () { formatCardNumber(this); });
   $('#card-expiry')?.addEventListener('input', function () { formatExpiry(this); });
 
@@ -539,28 +832,33 @@ function bindEvents() {
   $('#btn-signout')?.addEventListener('click', () => {
     clearUser();
     updateHeaderUser();
+    state.featuredLoaded = false;
     showView('login');
   });
 
   // ── Delete account ──
   $('#btn-delete-account')?.addEventListener('click', () => {
     if (window.confirm('Are you sure you want to delete your account? This cannot be undone.')) {
+      // Remove from accounts array
+      const accounts = getAccounts().filter(a => a.email !== state.user?.email);
+      localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
       clearUser();
       localStorage.removeItem('cipher_settings');
       updateHeaderUser();
+      state.featuredLoaded = false;
       showView('login');
     }
   });
 
   // ── Profile edit placeholder ──
   $('#edit-profile-btn')?.addEventListener('click', () => {
-    alert('Profile editing coming soon!');
+    showToast('Profile editing coming soon!', 'info');
   });
 
-  // ── Keyboard: close modal on Escape ──
+  // ── Keyboard: Escape closes verify/signup ──
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      $('#signup-modal')?.classList.add('hidden');
+    if (e.key === 'Escape' && state.currentView === 'verify') {
+      showView('signup');
     }
   });
 }
