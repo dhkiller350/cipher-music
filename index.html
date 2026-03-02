@@ -9,6 +9,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Cipher Music" />
   <meta name="description" content="Stream music with Cipher — your personal music player" />
+  <!-- Prevent iOS from treating phone numbers as links -->
+  <meta name="format-detection" content="telephone=no" />
   <title>Cipher Music</title>
   <!-- Favicon — tab icon next to the page title -->
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
@@ -58,6 +60,7 @@
     </div>
     <div class="header-info">
       <span id="greeting-text">Good Morning</span>
+      <span id="sleep-timer-indicator" class="sleep-timer-indicator hidden" title="Sleep timer active">⏱️</span>
       <span id="plan-badge" class="plan-badge hidden"></span>
       <span id="user-name-display" class="user-name hidden"></span>
       <span id="clock-display" class="clock">00:00:00</span>
@@ -112,6 +115,8 @@
         </li>
       </ul>
     </nav>
+    <!-- Mobile sidebar backdrop -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop hidden" aria-hidden="true"></div>
 
     <!-- MAIN CONTENT -->
     <main id="main-content">
@@ -500,7 +505,10 @@
 
         <!-- YouTube IFrame container — hidden (audio-only) or visible (video mode) -->
         <div id="yt-player-container" class="yt-hidden">
-          <button id="btn-close-video" class="btn-close-video" aria-label="Close video">✕</button>
+          <div class="yt-video-controls">
+            <button id="btn-close-video" class="btn-close-video" aria-label="Close video">✕</button>
+            <button id="btn-fullscreen-video" class="btn-fullscreen-video" aria-label="Fullscreen video" title="Fullscreen">⛶</button>
+          </div>
           <div id="yt-player"></div>
         </div>
       </section>
@@ -1100,8 +1108,8 @@
     <div class="modal-overlay" id="modal-changelog-overlay"></div>
     <div class="modal-card glass-card">
       <div class="changelog-emoji">🎉</div>
-      <h3 id="changelog-title">What's New in v2.1</h3>
-      <p>Cipher Music just got a big update with new features:</p>
+      <h3 id="changelog-title">What's New in v2.2</h3>
+      <p>Cipher Music just got a major update:</p>
       <ul class="changelog-list">
         <li>🗂️ <strong>Playlists</strong> — create and manage your own playlists</li>
         <li>⏱️ <strong>Sleep Timer</strong> — auto-pause after X minutes</li>
@@ -1111,6 +1119,10 @@
         <li>📤 <strong>Share Song</strong> — share what you're listening to</li>
         <li>🖼️ <strong>Art Background</strong> — blurred album art in Now Playing</li>
         <li>⬆↓ <strong>Sort Liked Songs</strong> — sort by date, title, or channel</li>
+        <li>📱 <strong>Cross-device</strong> — improved mobile, tablet &amp; iPad layout</li>
+        <li>🔒 <strong>Lock Screen Controls</strong> — play/pause from lock screen</li>
+        <li>💡 <strong>Wake Lock</strong> — screen stays on while playing</li>
+        <li>🎬 <strong>Video Player</strong> — full-screen video with playsinline on iOS</li>
       </ul>
       <button id="btn-close-changelog" class="btn-primary btn-full" style="margin-top:16px">Let's Go! 🚀</button>
     </div>

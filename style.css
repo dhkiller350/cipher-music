@@ -2405,3 +2405,294 @@ body:not(.dark-mode) .liked-sort-select { background: #fff; color: #111133; }
   font-weight: 600;
   white-space: nowrap;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   CROSS-DEVICE & MOBILE — COMPREHENSIVE IMPROVEMENTS (v2.2)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── iOS Safe Area Support ──────────────────────────────── */
+#app-header {
+  padding-left:  max(24px, env(safe-area-inset-left));
+  padding-right: max(24px, env(safe-area-inset-right));
+  padding-top:   env(safe-area-inset-top);
+  height: calc(var(--header-h) + env(safe-area-inset-top));
+}
+
+.player-bar {
+  padding-bottom: max(0px, env(safe-area-inset-bottom));
+  height: calc(var(--player-h) + env(safe-area-inset-bottom));
+  padding-left:   max(24px, env(safe-area-inset-left));
+  padding-right:  max(24px, env(safe-area-inset-right));
+}
+
+#sidebar {
+  padding-top:    max(24px, env(safe-area-inset-top));
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  top: calc(var(--header-h) + env(safe-area-inset-top));
+}
+
+/* ── Sidebar backdrop overlay ───────────────────────────── */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 89; /* just below sidebar (z-index 90) */
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+/* ── Minimum touch-target size (44×44px for iOS HIG) ────── */
+.ctrl-btn, .btn-like, .btn-card-action, .nav-item,
+.btn-ghost-sm, .toggle-pw, .genre-chip {
+  min-height: 44px;
+  min-width:  44px;
+}
+.genre-chip { min-width: 0; } /* chips don't need min 44px wide */
+
+/* ── Tablet layout (iPad portrait = ~768px, landscape ~1024px) ── */
+@media (min-width: 641px) and (max-width: 1024px) {
+  :root {
+    --sidebar-w: 200px;
+  }
+
+  .results-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+  .plans-grid   { grid-template-columns: 1fr 1fr; }
+  .settings-group { max-width: 100%; }
+  .payment-section { max-width: 100%; }
+  .current-plan-banner { max-width: 100%; }
+  .edit-profile-section { max-width: 100%; }
+  .view-content { padding: 24px 20px calc(var(--player-h) + 24px); }
+
+  /* Keep sidebar visible on tablet but allow hamburger toggle */
+  #sidebar { transform: none; }
+  #sidebar.hidden { transform: translateX(-200px); display: block !important; }
+
+  /* Wider NP panel on tablets */
+  .np-panel { gap: 16px; }
+}
+
+/* ── Small mobile (≤ 480px) additional fixes ─────────────── */
+@media (max-width: 480px) {
+  .results-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .result-info  { padding: 8px 10px 10px; }
+  .result-title { font-size: 0.8rem; }
+
+  /* Full-width auth card */
+  .auth-container { max-width: 100%; }
+  .auth-card { margin: 0; border-radius: var(--radius-sm); }
+
+  /* Compact player bar — hide volume on small screens */
+  .volume-wrap { display: none; }
+
+  /* Tighter header */
+  .brand-name { font-size: 1rem; }
+  #clock-display { font-size: 0.75rem; }
+
+  /* Stack playlist detail actions */
+  .playlist-detail-actions { flex-direction: column; width: 100%; }
+  .playlist-detail-actions .btn-primary,
+  .playlist-detail-actions .btn-secondary,
+  .playlist-detail-actions .btn-danger { width: 100%; text-align: center; }
+
+  /* Liked sort bar wrap */
+  .liked-sort-bar { flex-wrap: wrap; }
+  .liked-sort-select { width: 100%; }
+
+  /* Queue items compact */
+  .queue-item { padding: 6px 8px; }
+}
+
+/* ── Touch devices: hide volume slider (use hardware volume) ── */
+@media (hover: none) and (pointer: coarse) {
+  .volume-wrap { display: none; }
+
+  /* Larger play button on touch */
+  #btn-play-pause { transform: scale(1.2); }
+  #btn-play-pause:hover { transform: scale(1.2); }
+
+  /* Better spacing between player controls */
+  .player-controls { gap: 12px; }
+}
+
+/* ── Player bar improved mobile layout ───────────────────── */
+@media (max-width: 640px) {
+  .player-bar {
+    height: auto;
+    min-height: var(--player-h);
+    padding: 8px 14px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .now-playing {
+    flex: 1;
+    min-width: 0;
+    order: 1;
+  }
+
+  .np-thumb {
+    width: 44px;
+    height: 44px;
+  }
+
+  .np-title { max-width: 140px; font-size: 0.82rem; }
+
+  .player-controls {
+    order: 2;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .ctrl-btn { padding: 6px; }
+
+  /* Hide replay button on very small screens to reduce clutter */
+  #btn-replay  { display: none; }
+}
+
+/* ── Video container — mobile responsive ─────────────────── */
+@media (max-width: 640px) {
+  #yt-player-container:not(.yt-hidden) {
+    width: calc(100vw - 16px) !important;
+    bottom: calc(var(--player-h) + env(safe-area-inset-bottom) + 8px);
+    right: 8px;
+    left: 8px;
+  }
+  #yt-player-container:not(.yt-hidden) #yt-player {
+    width: 100% !important;
+    height: 0 !important;
+    padding-bottom: 56.25%; /* 16:9 aspect ratio */
+    position: relative;
+  }
+}
+
+/* Fullscreen button in video controls */
+.yt-video-controls {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  z-index: 10;
+}
+
+.btn-fullscreen-video {
+  background: rgba(0,0,0,0.6);
+  border: none;
+  color: #fff;
+  font-size: 14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: background var(--transition);
+}
+.btn-fullscreen-video:hover { background: rgba(0,0,0,0.85); }
+
+/* ── Sleep timer indicator in header ─────────────────────── */
+.sleep-timer-indicator {
+  font-size: 1rem;
+  cursor: default;
+  animation: timerPulse 2s ease-in-out infinite;
+}
+@keyframes timerPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+/* ── Sidebar: consistent mobile open on all breakpoints ──── */
+@media (max-width: 1024px) {
+  #sidebar {
+    position: fixed;
+    left: 0;
+    top: var(--header-h);
+    bottom: 0;
+    height: auto;
+    z-index: 90;
+    transform: translateX(-240px);
+    width: 240px;
+    transition: transform var(--transition);
+    background: rgba(10,10,15,0.97);
+    backdrop-filter: blur(20px);
+  }
+
+  #sidebar.sidebar-open {
+    transform: translateX(0);
+    box-shadow: 4px 0 32px rgba(0,0,0,0.5);
+  }
+
+  #main-content {
+    margin-left: 0 !important;
+  }
+
+  .sidebar-toggle { display: flex; }
+}
+
+@media (min-width: 1025px) {
+  .sidebar-toggle { display: none; }
+  #sidebar { transform: none !important; }
+  #sidebar-backdrop { display: none !important; }
+}
+
+/* ── Main content padding accounts for safe area ─────────── */
+#main-content {
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+/* ── View content vertical padding fix ───────────────────── */
+.view-content {
+  padding-bottom: calc(var(--player-h) + env(safe-area-inset-bottom) + 32px);
+}
+
+/* ── Auth views full height on short screens ─────────────── */
+@media (max-height: 700px) {
+  .auth-card { padding: 24px 28px; }
+  .auth-logo { margin-bottom: 20px; }
+  .auth-logo h1 { font-size: 1.4rem; }
+}
+
+/* ── Profile view improvements on mobile ─────────────────── */
+@media (max-width: 640px) {
+  .profile-card { padding: 20px 16px; }
+  .avatar { width: 64px; height: 64px; font-size: 1.6rem; }
+  .edit-profile-section { padding: 16px; }
+  .edit-profile-actions { flex-direction: column; }
+  .edit-profile-actions button { width: 100%; }
+}
+
+/* ── Settings view improvements on mobile ────────────────── */
+@media (max-width: 640px) {
+  .settings-group { padding: 16px; }
+  .setting-row { padding: 12px 0; gap: 12px; }
+  .setting-name { font-size: 0.88rem; }
+  .setting-desc { font-size: 0.75rem; }
+}
+
+/* ── NP panel improvements on mobile ─────────────────────── */
+@media (max-width: 640px) {
+  .np-panel { flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: 16px; }
+  .np-panel-artwork { width: 80px; height: 80px; }
+  .np-panel-info { width: 100%; }
+  .np-panel-actions { justify-content: center; }
+  .np-panel-title { font-size: 0.95rem; }
+}
+
+/* ── Landscape phone layout ───────────────────────────────── */
+@media (max-height: 500px) and (orientation: landscape) {
+  :root { --header-h: 48px; }
+  .view-content { padding-top: 16px; }
+  .np-panel { padding: 10px 14px; }
+  .np-panel-artwork { width: 60px; height: 60px; }
+}
+
+/* ── Modal improvements on mobile ───────────────────────── */
+@media (max-width: 480px) {
+  .modal-card { padding: 24px 18px; }
+  .changelog-list li { font-size: 0.78rem; padding: 4px 8px; }
+  .modal-actions { flex-direction: column; }
+  .modal-actions button { width: 100%; }
+}

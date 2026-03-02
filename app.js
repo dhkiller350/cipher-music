@@ -10,7 +10,7 @@ const CONFIG = {
   EMAILJS_PUBLIC_KEY:  "IJSM7Zp-wxJkkxVN7"
 };
 
-const APP_VERSION = '2.1'; // bump to show changelog on next load
+const APP_VERSION = '2.2'; // bump to show changelog on next load
 
 // ── State ──────────────────────────────────────────────────
 const AD_FREQUENCY        = 5;   // songs between ads for free users
@@ -65,6 +65,62 @@ function stopListeningTimer() {
     clearInterval(_listeningTimerId);
     _listeningTimerId = null;
   }
+}
+
+// ── Wake Lock API ─────────────────────────────────────────
+// Prevents the screen from turning off while music is playing.
+let _wakeLock = null;
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    if (_wakeLock) return; // already held
+    _wakeLock = await navigator.wakeLock.request('screen');
+    _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+  } catch (_) { /* not fatal */ }
+}
+
+async function releaseWakeLock() {
+  if (_wakeLock) {
+    try { await _wakeLock.release(); } catch (_) {}
+    _wakeLock = null;
+  }
+}
+
+// Re-acquire wake lock when tab becomes visible again
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.isPlaying) {
+    requestWakeLock();
+  }
+});
+
+// ── Media Session API ─────────────────────────────────────
+// Shows Now Playing info on the OS lock screen and enables
+// hardware media keys (headphones, lock-screen controls).
+function updateMediaSession(item) {
+  if (!('mediaSession' in navigator)) return;
+  const title   = decodeHTMLEntities(item.snippet?.title || '');
+  const artist  = item.snippet?.channelTitle || 'Cipher Music';
+  const thumb   = item.snippet?.thumbnails?.high?.url
+               || item.snippet?.thumbnails?.medium?.url
+               || '';
+
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title,
+    artist,
+    album: 'Cipher Music',
+    artwork: thumb ? [
+      { src: thumb, sizes: '480x360', type: 'image/jpeg' },
+      { src: thumb, sizes: '320x180', type: 'image/jpeg' }
+    ] : []
+  });
+
+  navigator.mediaSession.setActionHandler('play',          () => { state.ytPlayer?.playVideo();  });
+  navigator.mediaSession.setActionHandler('pause',         () => { state.ytPlayer?.pauseVideo(); });
+  navigator.mediaSession.setActionHandler('previoustrack', () => playPrev());
+  navigator.mediaSession.setActionHandler('nexttrack',     () => playNext());
+  navigator.mediaSession.setActionHandler('stop',          () => { state.ytPlayer?.stopVideo(); });
+  // seekto/seekbackward/seekforward are not supported for YT embeds
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -514,9 +570,16 @@ function showView(viewName) {
 window.onYouTubeIframeAPIReady = function () {
   state.ytReady = true;
   state.ytPlayer = new YT.Player('yt-player', {
-    height: '1',
-    width: '1',
-    playerVars: { autoplay: 0, controls: 0 },
+    height: '180',
+    width: '320',
+    playerVars: {
+      autoplay:      0,
+      controls:      1,       // show controls (needed for iOS background)
+      playsinline:   1,       // prevent iOS from going fullscreen automatically
+      rel:           0,       // no related videos at end
+      modestbranding: 1,      // minimal YouTube branding
+      fs:            1        // allow fullscreen button
+    },
     events: { onStateChange: onPlayerStateChange }
   });
 };
@@ -530,8 +593,19 @@ function onPlayerStateChange(event) {
 
   if (playing) {
     startListeningTimer();
+    requestWakeLock();
+    // Update media session playback state
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'playing';
+    }
   } else {
     stopListeningTimer();
+    if (event.data === YT.PlayerState.PAUSED) {
+      releaseWakeLock();
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'paused';
+      }
+    }
   }
 
   if (event.data === YT.PlayerState.ENDED) {
@@ -584,6 +658,7 @@ function playVideo(index) {
 
   updateNowPlaying(item);
   updateNowPlayingPanel(item);
+  updateMediaSession(item);  // lock-screen / headphone controls
   showPlayerBar();
   highlightCard(index);
 
@@ -1794,8 +1869,13 @@ function setSleepTimer(minutes) {
     clearTimeout(state.sleepTimerId);
     state.sleepTimerId = null;
   }
+  const indicator = $('#sleep-timer-indicator');
+  if (indicator) indicator.classList.add('hidden');
+
   if (!minutes || minutes <= 0) return;
   showToast(`Sleep timer set for ${minutes} minutes 😴`, 'info', 3000);
+  if (indicator) indicator.classList.remove('hidden');
+
   state.sleepTimerId = setTimeout(() => {
     if (state.ytPlayer && state.ytReady && state.isPlaying) {
       state.ytPlayer.pauseVideo();
@@ -1804,6 +1884,8 @@ function setSleepTimer(minutes) {
     state.sleepTimerId = null;
     const sel = $('#sleep-timer-select');
     if (sel) sel.value = '0';
+    const ind = $('#sleep-timer-indicator');
+    if (ind) ind.classList.add('hidden');
   }, minutes * 60 * 1000);
 }
 
@@ -1979,6 +2061,12 @@ function openModal(id) {
 function closeModal(id) {
   const modal = $(`#${id}`);
   if (modal) modal.classList.add('hidden');
+}
+
+function closeSidebar() {
+  $('#sidebar')?.classList.remove('sidebar-open');
+  $('#sidebar-backdrop')?.classList.add('hidden');
+  $('#sidebar-toggle')?.classList.remove('active');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2315,6 +2403,13 @@ function bindEvents() {
   $('#btn-close-video')?.addEventListener('click', () => {
     if (state.videoMode) toggleVideoMode();
   });
+  $('#btn-fullscreen-video')?.addEventListener('click', () => {
+    const container = $('#yt-player-container');
+    if (!container) return;
+    if (container.requestFullscreen) container.requestFullscreen();
+    else if (container.webkitRequestFullscreen) container.webkitRequestFullscreen();
+    else if (container.mozRequestFullScreen) container.mozRequestFullScreen();
+  });
 
   // ── Ad overlay ──
   $('#btn-ad-skip')?.addEventListener('click', closeAd);
@@ -2352,8 +2447,23 @@ function bindEvents() {
 
   // ── Hamburger sidebar toggle ──
   $('#sidebar-toggle')?.addEventListener('click', () => {
-    $('#sidebar')?.classList.toggle('sidebar-open');
-    $('#sidebar-toggle')?.classList.toggle('active');
+    const sidebar  = $('#sidebar');
+    const backdrop = $('#sidebar-backdrop');
+    const toggle   = $('#sidebar-toggle');
+    const isOpen   = sidebar?.classList.contains('sidebar-open');
+    sidebar?.classList.toggle('sidebar-open', !isOpen);
+    backdrop?.classList.toggle('hidden', isOpen);
+    toggle?.classList.toggle('active', !isOpen);
+  });
+
+  // ── Sidebar backdrop — click to close ──
+  $('#sidebar-backdrop')?.addEventListener('click', closeSidebar);
+
+  // ── Close sidebar when a nav item is tapped on mobile ──
+  $$('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      if (window.innerWidth <= 1024) closeSidebar();
+    });
   });
 
   // ── Share song ──
