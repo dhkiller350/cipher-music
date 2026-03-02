@@ -212,7 +212,57 @@ function updateMediaSession(item) {
   navigator.mediaSession.setActionHandler('previoustrack', () => playPrev());
   navigator.mediaSession.setActionHandler('nexttrack',     () => playNext());
   navigator.mediaSession.setActionHandler('stop',          () => { state.ytPlayer?.stopVideo(); });
-  // seekto/seekbackward/seekforward are not supported for YT embeds
+
+  // Lock-screen shuffle/repeat actions (supported on Android Chrome / some iOS versions)
+  try {
+    navigator.mediaSession.setActionHandler('shuffle', () => toggleShuffle());
+  } catch (_) {}
+  try {
+    navigator.mediaSession.setActionHandler('togglerepeat', () => cycleRepeat());
+  } catch (_) {}
+
+  // Seek backward / forward (10-second steps) — best-effort on YT embeds
+  const seekStep = 10;
+  try {
+    navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+      const step = details?.seekOffset ?? seekStep;
+      const current = state.ytPlayer?.getCurrentTime?.() ?? 0;
+      state.ytPlayer?.seekTo(Math.max(0, current - step), true);
+    });
+  } catch (_) {}
+  try {
+    navigator.mediaSession.setActionHandler('seekforward', (details) => {
+      const step = details?.seekOffset ?? seekStep;
+      const current = state.ytPlayer?.getCurrentTime?.() ?? 0;
+      state.ytPlayer?.seekTo(current + step, true);
+    });
+  } catch (_) {}
+}
+
+/** Cycle repeat mode: off → all → one → off */
+function cycleRepeat() {
+  const settings = JSON.parse(localStorage.getItem('cipher_settings') || '{}');
+  const order    = ['off', 'all', 'one'];
+  const idx      = order.indexOf(settings.repeatMode || 'off');
+  settings.repeatMode = order[(idx + 1) % order.length];
+  localStorage.setItem('cipher_settings', JSON.stringify(settings));
+  // Sync the <select> on the settings page (if visible)
+  const sel = $('#repeat-mode');
+  if (sel) sel.value = settings.repeatMode;
+  // Update the player-bar repeat button appearance
+  updateRepeatButton(settings.repeatMode);
+}
+
+/** Update the player-bar repeat button visual state. */
+function updateRepeatButton(mode) {
+  const btn = $('#btn-repeat');
+  if (!btn) return;
+  btn.dataset.mode = mode || 'off';
+  const titles = { off: 'Repeat: Off', all: 'Repeat: All', one: 'Repeat: One' };
+  btn.title = titles[mode] || 'Repeat: Off';
+  btn.classList.toggle('active',  mode === 'all' || mode === 'one');
+  btn.classList.toggle('repeat-one', mode === 'one');
+  btn.setAttribute('aria-pressed', String(mode !== 'off'));
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -712,25 +762,20 @@ function onPlayerStateChange(event) {
     const repeat   = settings.repeatMode || 'off';
     if (repeat === 'one') {
       playVideo(state.currentIndex);
+    } else if (playNextWithQueue()) {
+      // Queue item played — nothing more to do
     } else if (settings.shuffle) {
-      // Shuffle: pick random track; with repeat-all wrap around is already handled by randomness
+      // Shuffle: pick a random track from the available results
       const next = Math.floor(Math.random() * state.searchResults.length);
       playVideo(next);
     } else {
-      const autoplay = $('#toggle-autoplay');
-      if (autoplay && autoplay.checked) {
-        // Try queue first, then normal next
-        if (!playNextWithQueue()) {
-          if (repeat === 'all' && state.currentIndex >= state.searchResults.length - 1) {
-            playVideo(0);
-          } else {
-            playNext();
-          }
-        }
-      } else {
-        // Even without autoplay, still check queue
-        if (state.queue.length > 0) playNextWithQueue();
+      // Advance to next track in list, or wrap on repeat-all
+      if (repeat === 'all' && state.currentIndex >= state.searchResults.length - 1) {
+        playVideo(0); // wrap around to the beginning
+      } else if (state.currentIndex < state.searchResults.length - 1) {
+        playNext();
       }
+      // If at the last track with no repeat, stop — nothing to do
     }
   }
 }
@@ -1024,14 +1069,11 @@ function decodeHTMLEntities(str) {
  * @param {string} query  - Search terms
  * @param {string} [channelId] - Optional YouTube channel ID to restrict results.
  *   When provided, results are ordered by viewCount; otherwise by relevance.
- *   videoCategoryId is intentionally omitted so all video types are returned
- *   (music, official videos, shorts, podcasts, etc.).
  */
 async function searchYouTube(query, channelId = '') {
   const url = new URL('https://www.googleapis.com/youtube/v3/search');
   url.searchParams.set('part', 'snippet');
   url.searchParams.set('type', 'video');
-  // Removed videoCategoryId restriction so ALL video types are returned
   url.searchParams.set('maxResults', '50');
   url.searchParams.set('q', query);
   url.searchParams.set('key', CONFIG.YOUTUBE_API_KEY);
@@ -1046,7 +1088,46 @@ async function searchYouTube(query, channelId = '') {
   const response = await fetch(url.toString());
   if (!response.ok) throw new Error(`YouTube API error: ${response.status}`);
   const data = await response.json();
-  return data.items || [];
+  return filterMusicOnly(data.items || []);
+}
+
+/**
+ * Remove non-music videos from a list of YouTube search results.
+ * Blocks: reviews, reactions, gaming, let's-plays, unboxing, tutorials,
+ * vlogs, podcasts, compilation critiques, and other non-music content.
+ */
+function filterMusicOnly(items) {
+  // Keywords whose presence in a title strongly signals non-music content.
+  const blocklist = [
+    /\breview\b/i,
+    /\breaction\b/i,
+    /\blet[''\u2019]?s\s+play\b/i,
+    /\bgameplay\b/i,
+    /\bgaming\b/i,
+    /\bunboxing\b/i,
+    /\btutorial\b/i,
+    /\bhow\s+to\b/i,
+    /\bvlog\b/i,
+    /\bpodcast\b/i,
+    /\binterview\b/i,
+    /\bexplained\b/i,
+    /\banalysis\b/i,
+    /\bbreakdown\b/i,
+    /\brant\b/i,
+    /\bcommentary\b/i,
+    /\bwalkthrough\b/i,
+    /\bspeedrun\b/i,
+  ];
+
+  return items.filter(item => {
+    const title   = item.snippet?.title || '';
+    const channel = item.snippet?.channelTitle || '';
+    // Block if the title matches any non-music keyword
+    if (blocklist.some(re => re.test(title))) return false;
+    // Block channels that are obviously gaming/tech, not music
+    if (/gaming|esport|let[''\u2019]?s\s+play/i.test(channel)) return false;
+    return true;
+  });
 }
 
 function bindCardEvents(container) {
@@ -1778,6 +1859,8 @@ function loadSettings() {
     shuffleBtn.classList.toggle('active', shuffleOn);
     shuffleBtn.setAttribute('aria-pressed', String(shuffleOn));
   }
+  // Sync player-bar repeat button with saved setting
+  updateRepeatButton(settings.repeatMode ?? 'off');
 }
 
 function saveSettings() {
@@ -2424,6 +2507,7 @@ function bindEvents() {
   $('#btn-prev')?.addEventListener('click', playPrev);
   $('#btn-replay')?.addEventListener('click', replayTrack);
   $('#btn-shuffle')?.addEventListener('click', toggleShuffle);
+  $('#btn-repeat')?.addEventListener('click', cycleRepeat);
 
   $('#volume-slider')?.addEventListener('input', (e) => {
     if (state.ytPlayer && state.ytReady) {
@@ -2470,8 +2554,14 @@ function bindEvents() {
     }
   });
 
-  ['repeat-mode', 'playback-speed', 'eq-preset', 'language-select'].forEach(id => {
+  ['playback-speed', 'eq-preset', 'language-select'].forEach(id => {
     $(`#${id}`)?.addEventListener('change', saveSettings);
+  });
+
+  // Keep repeat-mode select in sync with the player-bar repeat button
+  $('#repeat-mode')?.addEventListener('change', function () {
+    saveSettings();
+    updateRepeatButton(this.value);
   });
 
   // ── Sign out ──

@@ -700,13 +700,26 @@ a:hover { text-decoration: underline; }
   background: var(--accent-glow);
 }
 
-/* Active state for shuffle and video-mode buttons */
+/* Active state for shuffle, repeat and video-mode buttons */
 .ctrl-btn.active,
 .shuffle-btn[aria-pressed="true"],
+.repeat-btn[aria-pressed="true"],
 .video-mode-btn.active {
   color: var(--accent);
   background: var(--accent-glow);
 }
+/* Repeat-One shows a "1" superscript via ::after */
+.repeat-btn.repeat-one::after {
+  content: '1';
+  font-size: 0.6rem;
+  font-weight: 800;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  line-height: 1;
+  color: var(--accent);
+}
+.repeat-btn { position: relative; }
 
 .volume-wrap {
   display: flex;
