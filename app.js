@@ -11,6 +11,10 @@ const CONFIG = {
 };
 
 // ── State ──────────────────────────────────────────────────
+const AD_FREQUENCY        = 5;   // songs between ads for free users
+const AD_COUNTDOWN_SECS   = 5;   // seconds before ad can be skipped
+const MAX_RECENT_SONGS    = 20;  // max items in recently-played list
+const MAX_AVATAR_SIZE     = 2 * 1024 * 1024; // 2 MB
 const state = {
   user: null,               // { username, email, memberSince }
   currentView: 'login',
@@ -27,7 +31,10 @@ const state = {
   activeChip: 'trending music 2025',
   activePlan: 'free',       // currently subscribed plan
   songsPlayed: 0,           // session play count
-  minutesListened: 0        // session listening minutes
+  minutesListened: 0,       // session listening minutes
+  videoMode: false,         // whether video mode is on
+  songsSinceAd: 0,          // for free-user ad counter
+  deferredInstallPrompt: null  // PWA install prompt
 };
 
 // ── DOM helpers ────────────────────────────────────────────
@@ -467,6 +474,9 @@ async function handleLogin(e) {
 function showView(viewName) {
   state.currentView = viewName;
 
+  $('#sidebar')?.classList.remove('sidebar-open');
+  $('#sidebar-toggle')?.classList.remove('active');
+
   $$('.view').forEach(v => v.classList.remove('active'));
   const target = $(`#view-${viewName}`);
   if (target) target.classList.add('active');
@@ -568,6 +578,8 @@ function playVideo(index) {
   state.songsPlayed++;
   startListeningTimer();
   updateProfileStats();
+  addToRecentlyPlayed(item);
+  maybeShowAd();
 }
 
 function updateNowPlayingPanel(item) {
@@ -888,6 +900,9 @@ function populateProfile() {
   if (epEmail) epEmail.value = state.user.email;
 
   updateProfileStats();
+  loadProfilePicture();
+  const likedEl = $('#stat-liked-songs');
+  if (likedEl) likedEl.textContent = getLiked().length;
 }
 
 function updateProfileStats() {
@@ -1081,15 +1096,224 @@ function updatePlanBanner() {
   if (badgeEl) badgeEl.textContent = 'Active';
 }
 
+function loadPlan() {
+  const saved = localStorage.getItem('cipher_active_plan');
+  if (saved) state.activePlan = saved;
+}
+
+function savePlan(plan) {
+  state.activePlan = plan;
+  localStorage.setItem('cipher_active_plan', plan);
+  updatePlanBanner();
+  updatePlanBadge();
+}
+
+function updatePlanBadge() {
+  const badge = $('#plan-badge');
+  if (!badge) return;
+  if (state.activePlan === 'pro') {
+    badge.textContent = '⭐ Pro';
+    badge.className = 'plan-badge plan-badge-pro';
+  } else if (state.activePlan === 'premium') {
+    badge.textContent = '💎 Premium';
+    badge.className = 'plan-badge plan-badge-premium';
+  } else {
+    badge.className = 'plan-badge hidden';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// RECENTLY PLAYED
+// ═══════════════════════════════════════════════════════════
+function getRecentlyPlayed() {
+  try { return JSON.parse(localStorage.getItem('cipher_recent') || '[]'); } catch { return []; }
+}
+
+function addToRecentlyPlayed(item) {
+  const videoId = item.id?.videoId || item.videoId || '';
+  if (!videoId) return;
+  const title   = decodeHTMLEntities(item.snippet?.title || '');
+  const channel = item.snippet?.channelTitle || '';
+  const thumb   = item.snippet?.thumbnails?.default?.url || item.snippet?.thumbnails?.medium?.url || '';
+  let recent = getRecentlyPlayed().filter(s => s.videoId !== videoId);
+  recent.unshift({ videoId, title, channel, thumb, playedAt: Date.now() });
+  if (recent.length > MAX_RECENT_SONGS) recent = recent.slice(0, MAX_RECENT_SONGS);
+  localStorage.setItem('cipher_recent', JSON.stringify(recent));
+  renderRecentlyPlayed();
+}
+
+function renderRecentlyPlayed() {
+  const recent  = getRecentlyPlayed();
+  const section = $('#recently-played-section');
+  const list    = $('#recently-played-list');
+  if (!section || !list) return;
+  if (!recent.length) { section.classList.add('hidden'); return; }
+  section.classList.remove('hidden');
+  list.innerHTML = recent.map(s => `
+    <div class="recent-item" data-videoid="${escapeAttr(s.videoId)}" role="button" tabindex="0" aria-label="Play ${escapeAttr(s.title)}">
+      <img class="recent-thumb" src="${escapeAttr(s.thumb)}" alt="" loading="lazy" />
+      <div class="recent-info">
+        <p class="recent-title">${escapeHTML(s.title)}</p>
+        <p class="recent-channel">${escapeHTML(s.channel)}</p>
+      </div>
+      <button class="recent-play-btn" data-videoid="${escapeAttr(s.videoId)}" aria-label="Play">▶</button>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.recent-play-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      playFromRecent(btn.dataset.videoid);
+    });
+  });
+  list.querySelectorAll('.recent-item').forEach(item => {
+    item.addEventListener('click', () => playFromRecent(item.dataset.videoid));
+  });
+}
+
+function playFromRecent(videoId) {
+  const idx = state.searchResults.findIndex(s => (s.id?.videoId || s.videoId) === videoId);
+  if (idx !== -1) { playVideo(idx); return; }
+  const recent = getRecentlyPlayed();
+  const s = recent.find(r => r.videoId === videoId);
+  if (!s) return;
+  const item = { id: { videoId }, snippet: { title: s.title, channelTitle: s.channel, thumbnails: { default: { url: s.thumb }, medium: { url: s.thumb } } } };
+  state.searchResults = [item, ...state.searchResults];
+  playVideo(0);
+}
+
+// ═══════════════════════════════════════════════════════════
+// AD SYSTEM (free users only)
+// ═══════════════════════════════════════════════════════════
+let _adTimerId = null;
+
+function maybeShowAd() {
+  if (state.activePlan !== 'free') return;
+  state.songsSinceAd = (state.songsSinceAd || 0) + 1;
+  if (state.songsSinceAd < AD_FREQUENCY) return;
+  state.songsSinceAd = 0;
+  showAd();
+}
+
+function showAd() {
+  const overlay  = $('#ad-overlay');
+  const skipBtn  = $('#btn-ad-skip');
+  const countdown = $('#ad-countdown');
+  const secSpan  = $('#ad-skip-seconds');
+  if (!overlay) return;
+
+  if (state.ytPlayer && state.ytReady && state.isPlaying) {
+    state.ytPlayer.pauseVideo();
+  }
+
+  overlay.classList.remove('hidden');
+  let sec = AD_COUNTDOWN_SECS;
+  if (skipBtn) { skipBtn.disabled = true; skipBtn.textContent = `Skip in ${sec}s`; }
+  if (secSpan) secSpan.textContent = sec;
+  if (countdown) countdown.textContent = sec;
+
+  _adTimerId = setInterval(() => {
+    sec--;
+    if (secSpan) secSpan.textContent = sec;
+    if (countdown) countdown.textContent = sec;
+    if (sec <= 0) {
+      clearInterval(_adTimerId);
+      if (skipBtn) { skipBtn.disabled = false; skipBtn.textContent = 'Skip Ad'; }
+    }
+  }, 1000);
+}
+
+function closeAd() {
+  clearInterval(_adTimerId);
+  const overlay = $('#ad-overlay');
+  if (overlay) overlay.classList.add('hidden');
+  if (state.ytPlayer && state.ytReady) {
+    state.ytPlayer.playVideo();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PROFILE PICTURE
+// ═══════════════════════════════════════════════════════════
+function loadProfilePicture() {
+  const pic = localStorage.getItem('cipher_avatar');
+  const avatar = $('#profile-avatar');
+  if (!avatar) return;
+  if (pic) {
+    avatar.style.backgroundImage = `url(${pic})`;
+    avatar.style.backgroundSize = 'cover';
+    avatar.style.backgroundPosition = 'center';
+    avatar.textContent = '';
+    avatar.classList.add('has-pic');
+  } else {
+    avatar.style.backgroundImage = '';
+    avatar.classList.remove('has-pic');
+    const initials = (state.user?.username || '?').substring(0, 2).toUpperCase();
+    avatar.textContent = initials;
+  }
+}
+
+function handleAvatarUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > MAX_AVATAR_SIZE) { showToast('Image must be under 2 MB', 'error'); return; }
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    localStorage.setItem('cipher_avatar', ev.target.result);
+    loadProfilePicture();
+    showToast('Profile picture updated! 📸', 'success');
+  };
+  reader.readAsDataURL(file);
+}
+
+// ═══════════════════════════════════════════════════════════
+// VIDEO MODE
+// ═══════════════════════════════════════════════════════════
+function toggleVideoMode() {
+  state.videoMode = !state.videoMode;
+  const container = $('#yt-player-container');
+  const btn = $('#btn-video-mode');
+  if (container) container.classList.toggle('yt-hidden', !state.videoMode);
+  if (btn) btn.classList.toggle('active', state.videoMode);
+
+  if (state.videoMode && state.ytPlayer && state.ytReady) {
+    state.ytPlayer.setSize(container.clientWidth, Math.min(container.clientHeight, 360));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PWA INSTALL
+// ═══════════════════════════════════════════════════════════
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  state.deferredInstallPrompt = e;
+  const btn = $('#btn-install-app');
+  if (btn) btn.classList.add('install-available');
+});
+
+function handleInstallApp() {
+  if (state.deferredInstallPrompt) {
+    state.deferredInstallPrompt.prompt();
+    state.deferredInstallPrompt.userChoice.then(() => {
+      state.deferredInstallPrompt = null;
+    });
+  } else {
+    showToast('To install: tap Share → "Add to Home Screen" (iOS) or menu → "Add to Home Screen" (Android)', 'info', 6000);
+  }
+}
+
 function handlePayment(e) {
   e.preventDefault();
   if (!validatePayment()) return;
 
-  state.activePlan = state.selectedPlan || 'pro';
-  updatePlanBanner();
+  savePlan(state.selectedPlan || 'pro');
+  const planNames = { pro: 'Pro', premium: 'Premium' };
+  const planName = planNames[state.selectedPlan] || 'Pro';
+  const titleEl = $('#payment-success-title');
+  if (titleEl) titleEl.textContent = `You're now a Cipher ${planName} member! 🎉`;
   $('#payment-form')?.classList.add('hidden');
   $('#payment-success')?.classList.remove('hidden');
-  showToast('Subscribed to Cipher ' + (state.selectedPlan || 'Pro') + '! 🎉', 'success');
+  showToast('Subscribed to Cipher ' + planName + '! 🎉', 'success');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1448,6 +1672,38 @@ function bindEvents() {
       }
     }
   });
+
+  // ── Video mode ──
+  $('#btn-video-mode')?.addEventListener('click', toggleVideoMode);
+  $('#btn-close-video')?.addEventListener('click', () => {
+    if (state.videoMode) toggleVideoMode();
+  });
+
+  // ── Ad overlay ──
+  $('#btn-ad-skip')?.addEventListener('click', closeAd);
+  $('#btn-ad-upgrade')?.addEventListener('click', () => {
+    closeAd();
+    showView('upgrade');
+  });
+
+  // ── Recently played clear ──
+  $('#btn-clear-recent')?.addEventListener('click', () => {
+    localStorage.removeItem('cipher_recent');
+    renderRecentlyPlayed();
+    showToast('Recently played cleared.', 'success');
+  });
+
+  // ── Avatar upload ──
+  $('#avatar-file-input')?.addEventListener('change', handleAvatarUpload);
+
+  // ── Install app ──
+  $('#btn-install-app')?.addEventListener('click', handleInstallApp);
+
+  // ── Hamburger sidebar toggle ──
+  $('#sidebar-toggle')?.addEventListener('click', () => {
+    $('#sidebar')?.classList.toggle('sidebar-open');
+    $('#sidebar-toggle')?.classList.toggle('active');
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1456,11 +1712,20 @@ function bindEvents() {
 function init() {
   loadUser();
   loadSettings();
+  loadPlan();
   updateHeaderUser();
   updateClock();
   setInterval(updateClock, 1000);
-  bindEvents();
   updatePlanBanner();
+  updatePlanBadge();
+  renderRecentlyPlayed();
+
+  // Register service worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
+  bindEvents();
 
   // Hash-based routing: allow direct links to signup/reset
   const hash = window.location.hash.slice(1);

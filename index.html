@@ -2,8 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#00d4ff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Cipher Music" />
+  <meta name="description" content="Stream music with Cipher — your personal music player" />
   <title>Cipher Music</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Ccircle cx='14' cy='14' r='13' stroke='%2300d4ff' stroke-width='2' fill='%230f0f1a'/%3E%3Cpath d='M10 9 L10 19 L20 14 Z' fill='%2300d4ff'/%3E%3Ccircle cx='14' cy='14' r='3' fill='%237c3aed'/%3E%3C/svg%3E" />
+  <link rel="manifest" href="manifest.json" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
@@ -15,6 +22,9 @@
        GLOBAL HEADER
   ═══════════════════════════════════════════ -->
   <header id="app-header">
+    <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Toggle menu">
+      <span></span><span></span><span></span>
+    </button>
     <div class="header-brand">
       <div class="logo-icon">
         <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -27,6 +37,7 @@
     </div>
     <div class="header-info">
       <span id="greeting-text">Good Morning</span>
+      <span id="plan-badge" class="plan-badge hidden"></span>
       <span id="user-name-display" class="user-name hidden"></span>
       <span id="clock-display" class="clock">00:00:00</span>
     </div>
@@ -328,6 +339,15 @@
             </div>
           </div>
 
+          <!-- Recently Played -->
+          <div id="recently-played-section" class="recently-played-section hidden">
+            <div class="section-header-row">
+              <h3 class="subsection-title">🕐 Recently Played</h3>
+              <button id="btn-clear-recent" class="btn-ghost-sm">Clear</button>
+            </div>
+            <div id="recently-played-list" class="recently-played-list"></div>
+          </div>
+
           <!-- Genre chips / Recommended Categories -->
           <div class="genre-chips" id="genre-chips">
             <button class="genre-chip active" data-query="trending music 2025">🔥 Trending</button>
@@ -396,12 +416,17 @@
             </svg>
             <input type="range" id="volume-slider" min="0" max="100" value="80" class="volume-slider" aria-label="Volume" />
           </div>
+          <button id="btn-video-mode" class="ctrl-btn video-mode-btn" aria-label="Toggle video mode" title="Video Mode">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+              <rect x="2" y="7" width="15" height="10" rx="2"/><path d="m17 8 5-3v12l-5-3"/>
+            </svg>
+          </button>
         </div>
 
-        <!-- Hidden YouTube IFrame container -->
-        <div id="yt-player-container">
-        <!-- YouTube IFrame is used as a background audio source -->
-        <div id="yt-player"></div>
+        <!-- YouTube IFrame container — hidden (audio-only) or visible (video mode) -->
+        <div id="yt-player-container" class="yt-hidden">
+          <button id="btn-close-video" class="btn-close-video" aria-label="Close video">✕</button>
+          <div id="yt-player"></div>
         </div>
       </section>
 
@@ -439,6 +464,12 @@
           <div class="profile-card glass-card">
             <div class="avatar-wrap">
               <div id="profile-avatar" class="avatar">A</div>
+              <label class="avatar-upload-btn" for="avatar-file-input" title="Change profile picture">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+                </svg>
+              </label>
+              <input type="file" id="avatar-file-input" accept="image/*" class="hidden" />
             </div>
             <div class="profile-info">
               <h3 id="profile-username" class="profile-name"></h3>
@@ -501,6 +532,10 @@
             <div class="stat-card glass-card">
               <span class="stat-value" id="stat-songs-played">0</span>
               <span class="stat-label">Songs Played</span>
+            </div>
+            <div class="stat-card glass-card">
+              <span class="stat-value" id="stat-liked-songs">0</span>
+              <span class="stat-label">Liked Songs</span>
             </div>
             <div class="stat-card glass-card">
               <span class="stat-value">7</span>
@@ -607,8 +642,13 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2" width="48" height="48">
                 <polyline points="20,6 9,17 4,12"/>
               </svg>
-              <h4>You're now a Cipher Pro member!</h4>
+              <h4 id="payment-success-title">You're now a Cipher Pro member! 🎉</h4>
               <p>Thank you for subscribing. Enjoy the full Cipher experience.</p>
+            </div>
+            <div class="cashapp-info">
+              <p class="cashapp-label">💵 Send payment via CashApp</p>
+              <a class="cashapp-tag" href="https://cash.app/$CIPHERPREMIUM" target="_blank" rel="noopener">$CIPHERPREMIUM</a>
+              <p class="cashapp-note">After payment, enter your details above and click Subscribe to activate your plan.</p>
             </div>
           </div>
         </div>
@@ -745,6 +785,29 @@
           </div>
 
           <div class="settings-group glass-card">
+            <h3 class="settings-group-title">Install App</h3>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Add to Home Screen</span>
+                <span class="setting-desc">Install Cipher Music on iOS or Android</span>
+              </div>
+              <button id="btn-install-app" class="btn-secondary">Install</button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">iOS</span>
+                <span class="setting-desc">Tap Share → "Add to Home Screen" in Safari</span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Android</span>
+                <span class="setting-desc">Tap the menu (⋮) → "Add to Home Screen" in Chrome</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-group glass-card">
             <h3 class="settings-group-title">Privacy &amp; Data</h3>
             <div class="setting-row">
               <div class="setting-info">
@@ -759,6 +822,23 @@
                 <span class="setting-desc">Download a copy of your account data</span>
               </div>
               <button id="btn-export-data" class="btn-secondary">Export</button>
+            </div>
+          </div>
+
+          <div class="settings-group glass-card">
+            <h3 class="settings-group-title">Support</h3>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Customer Support</span>
+                <span class="setting-desc">Get help from our team</span>
+              </div>
+              <a href="mailto:demosn505@gmail.com" class="btn-secondary" style="text-decoration:none">Email Us</a>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">App Version</span>
+                <span class="setting-desc">Cipher Music v2.0</span>
+              </div>
             </div>
           </div>
 
@@ -780,6 +860,33 @@
       </section>
 
     </main>
+  </div>
+
+  <!-- Ad Overlay (shown for free users every 5 songs) -->
+  <div id="ad-overlay" class="ad-overlay hidden" role="dialog" aria-modal="true" aria-label="Advertisement">
+    <div class="ad-card glass-card">
+      <div class="ad-header">
+        <span class="ad-label">Advertisement</span>
+        <span id="ad-countdown" class="ad-countdown">5</span>
+      </div>
+      <div class="ad-content">
+        <div class="ad-art">
+          <svg viewBox="0 0 80 80" width="80" height="80">
+            <circle cx="40" cy="40" r="38" fill="url(#ag)" stroke="#00d4ff" stroke-width="2"/>
+            <defs><radialGradient id="ag" cx="50%" cy="50%"><stop offset="0%" stop-color="#7c3aed"/><stop offset="100%" stop-color="#0f0f1a"/></radialGradient></defs>
+            <path d="M28 26 L28 54 L56 40 Z" fill="#00d4ff"/>
+          </svg>
+        </div>
+        <div class="ad-text">
+          <h3>Enjoying Cipher Music?</h3>
+          <p>Upgrade to <strong>Pro</strong> for ad-free listening, high-quality audio, and unlimited skips.</p>
+          <div class="ad-actions">
+            <button class="btn-primary" id="btn-ad-upgrade">Upgrade Now — $9.99/mo</button>
+            <button class="btn-ghost" id="btn-ad-skip" disabled>Skip in <span id="ad-skip-seconds">5</span>s</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Toast notification container -->
