@@ -10,6 +10,8 @@ const CONFIG = {
   EMAILJS_PUBLIC_KEY:  "IJSM7Zp-wxJkkxVN7"
 };
 
+const APP_VERSION = '2.1'; // bump to show changelog on next load
+
 // ── State ──────────────────────────────────────────────────
 const AD_FREQUENCY        = 5;   // songs between ads for free users
 const AD_COUNTDOWN_SECS   = 5;   // seconds before ad can be skipped
@@ -35,7 +37,13 @@ const state = {
   minutesListened: 0,       // session listening minutes
   videoMode: false,         // whether video mode is on
   songsSinceAd: 0,          // for free-user ad counter
-  deferredInstallPrompt: null  // PWA install prompt
+  deferredInstallPrompt: null,  // PWA install prompt
+  queue: [],                // play queue (array of YouTube items)
+  isMuted: false,           // mute state
+  sleepTimerId: null,       // sleep timer timeout ID
+  ratePromptShown: false,   // whether rate-app prompt was shown this session
+  currentPlaylistId: null,  // currently open playlist ID
+  addToPlaylistTarget: null // item waiting to be added to a playlist
 };
 
 // ── DOM helpers ────────────────────────────────────────────
@@ -496,6 +504,7 @@ function showView(viewName) {
 
   if (viewName === 'profile') populateProfile();
   if (viewName === 'liked') populateLiked();
+  if (viewName === 'playlists') populatePlaylists();
   if (viewName === 'player' && !state.featuredLoaded) loadFeaturedMusic();
 }
 
@@ -538,11 +547,17 @@ function onPlayerStateChange(event) {
     } else {
       const autoplay = $('#toggle-autoplay');
       if (autoplay && autoplay.checked) {
-        if (repeat === 'all' && state.currentIndex >= state.searchResults.length - 1) {
-          playVideo(0);
-        } else {
-          playNext();
+        // Try queue first, then normal next
+        if (!playNextWithQueue()) {
+          if (repeat === 'all' && state.currentIndex >= state.searchResults.length - 1) {
+            playVideo(0);
+          } else {
+            playNext();
+          }
         }
+      } else {
+        // Even without autoplay, still check queue
+        if (state.queue.length > 0) playNextWithQueue();
       }
     }
   }
@@ -581,6 +596,20 @@ function playVideo(index) {
   updateProfileStats();
   addToRecentlyPlayed(item);
   maybeShowAd();
+  maybeShowRatePrompt();
+}
+
+// When a track ends naturally and there are queued items, play from queue
+function playNextWithQueue() {
+  if (state.queue.length > 0) {
+    const next = state.queue.shift();
+    state.searchResults = [next, ...state.searchResults.slice(state.currentIndex + 1)];
+    state.currentIndex = -1;
+    playVideo(0);
+    renderQueuePanel();
+    return true;
+  }
+  return false;
 }
 
 function updateNowPlayingPanel(item) {
@@ -588,6 +617,7 @@ function updateNowPlayingPanel(item) {
   const art     = $('#np-panel-art');
   const title   = $('#np-panel-title');
   const channel = $('#np-panel-channel');
+  const bg      = $('#np-panel-bg');
 
   const thumb   = item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || '';
   const titleTxt = decodeHTMLEntities(item.snippet?.title || '');
@@ -596,6 +626,7 @@ function updateNowPlayingPanel(item) {
   if (art)     art.src = thumb;
   if (title)   title.textContent = titleTxt;
   if (channel) channel.textContent = ch;
+  if (bg && thumb) bg.style.backgroundImage = `url(${thumb})`;
 
   const settings = JSON.parse(localStorage.getItem('cipher_settings') || '{}');
   const showSW   = settings.showSoundwave !== false;
@@ -672,7 +703,7 @@ function toggleLike(btn) {
 }
 
 function populateLiked() {
-  const liked   = getLiked();
+  let liked = getLiked();
   const grid    = $('#liked-grid');
   const empty   = $('#liked-empty');
   const label   = $('#liked-count-label');
@@ -688,6 +719,23 @@ function populateLiked() {
   }
 
   empty?.classList.add('hidden');
+
+  // Apply sort
+  const sortEl = $('#liked-sort');
+  const sortVal = sortEl?.value || 'date-desc';
+  liked = [...liked];
+  if (sortVal === 'date-asc') {
+    // oldest first — they are stored newest-first so just reverse
+  } else if (sortVal === 'title-asc') {
+    liked.sort((a, b) => a.title.localeCompare(b.title));
+  } else if (sortVal === 'title-desc') {
+    liked.sort((a, b) => b.title.localeCompare(a.title));
+  } else if (sortVal === 'channel') {
+    liked.sort((a, b) => a.channel.localeCompare(b.channel));
+  } else if (sortVal === 'date-asc') {
+    liked.reverse();
+  }
+  // date-desc is default (as stored)
 
   // Build fake "items" compatible with renderResults
   const items = liked.map(s => ({
@@ -720,6 +768,12 @@ function populateLiked() {
               <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" width="16" height="16">
                 <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
               </svg>
+            </button>
+            <button class="btn-card-action btn-queue-add" data-index="${idx}" aria-label="Add to queue" title="Add to queue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button class="btn-card-action btn-playlist-add" data-index="${idx}" aria-label="Add to playlist" title="Add to playlist">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/></svg>
             </button>
           </div>
         </div>
@@ -830,7 +884,7 @@ function bindCardEvents(container) {
 
   container.querySelectorAll('.result-card').forEach(card => {
     card.addEventListener('click', (e) => {
-      if (e.target.closest('.btn-like')) return;
+      if (e.target.closest('.btn-like') || e.target.closest('.btn-card-action')) return;
       playVideo(parseInt(card.dataset.index, 10));
     });
   });
@@ -839,6 +893,26 @@ function bindCardEvents(container) {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleLike(btn);
+    });
+  });
+
+  container.querySelectorAll('.btn-queue-add').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.index, 10);
+      if (idx >= 0 && idx < state.searchResults.length) {
+        addToQueue(state.searchResults[idx]);
+      }
+    });
+  });
+
+  container.querySelectorAll('.btn-playlist-add').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.index, 10);
+      if (idx >= 0 && idx < state.searchResults.length) {
+        openAddToPlaylistModal(state.searchResults[idx]);
+      }
     });
   });
 }
@@ -878,6 +952,12 @@ function renderResults(items, gridId = 'search-results') {
               <svg viewBox="0 0 24 24" fill="${isLiked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" width="16" height="16">
                 <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
               </svg>
+            </button>
+            <button class="btn-card-action btn-queue-add" data-index="${idx}" aria-label="Add to queue" title="Add to queue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button class="btn-card-action btn-playlist-add" data-index="${idx}" aria-label="Add to playlist" title="Add to playlist">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/></svg>
             </button>
           </div>
         </div>
@@ -1460,6 +1540,445 @@ function saveSettings() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// PLAY QUEUE
+// ═══════════════════════════════════════════════════════════
+function addToQueue(item) {
+  if (!item) return;
+  state.queue.push(item);
+  renderQueuePanel();
+  const title = decodeHTMLEntities(item.snippet?.title || 'track');
+  showToast(`Added to queue: ${title}`, 'success', 2500);
+}
+
+function renderQueuePanel() {
+  const section = $('#queue-section');
+  const list    = $('#queue-list');
+  const badge   = $('#queue-count-badge');
+  if (!section || !list) return;
+
+  if (!state.queue.length) {
+    section.classList.add('hidden');
+    return;
+  }
+
+  section.classList.remove('hidden');
+  if (badge) badge.textContent = `(${state.queue.length})`;
+
+  list.innerHTML = state.queue.map((item, idx) => {
+    const thumb   = item.snippet?.thumbnails?.default?.url || item.snippet?.thumbnails?.medium?.url || '';
+    const title   = decodeHTMLEntities(item.snippet?.title || '');
+    const channel = item.snippet?.channelTitle || '';
+    return `
+      <div class="queue-item">
+        <span class="queue-num">${idx + 1}</span>
+        <img class="recent-thumb" src="${escapeAttr(thumb)}" alt="" loading="lazy" />
+        <div class="recent-info">
+          <p class="recent-title">${escapeHTML(title)}</p>
+          <p class="recent-channel">${escapeHTML(channel)}</p>
+        </div>
+        <button class="queue-remove-btn" data-idx="${idx}" aria-label="Remove from queue" title="Remove">✕</button>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('.queue-remove-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.queue.splice(parseInt(btn.dataset.idx, 10), 1);
+      renderQueuePanel();
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// PLAYLISTS
+// ═══════════════════════════════════════════════════════════
+function getPlaylists() {
+  try { return JSON.parse(localStorage.getItem('cipher_playlists') || '[]'); } catch { return []; }
+}
+
+function savePlaylists(playlists) {
+  localStorage.setItem('cipher_playlists', JSON.stringify(playlists));
+}
+
+function createPlaylist(name) {
+  const id = 'pl_' + Date.now();
+  const playlists = getPlaylists();
+  playlists.push({ id, name, songs: [], createdAt: Date.now() });
+  savePlaylists(playlists);
+  return id;
+}
+
+function deletePlaylist(id) {
+  savePlaylists(getPlaylists().filter(p => p.id !== id));
+}
+
+function renamePlaylist(id, newName) {
+  savePlaylists(getPlaylists().map(p => p.id === id ? { ...p, name: newName } : p));
+}
+
+function addSongToPlaylist(playlistId, song) {
+  const playlists = getPlaylists();
+  const pl = playlists.find(p => p.id === playlistId);
+  if (!pl) return false;
+  if (pl.songs.find(s => s.videoId === song.videoId)) return false; // already in playlist
+  pl.songs.push(song);
+  savePlaylists(playlists);
+  return true;
+}
+
+function removeSongFromPlaylist(playlistId, videoId) {
+  const playlists = getPlaylists();
+  const pl = playlists.find(p => p.id === playlistId);
+  if (!pl) return;
+  pl.songs = pl.songs.filter(s => s.videoId !== videoId);
+  savePlaylists(playlists);
+}
+
+function populatePlaylists() {
+  const playlists = getPlaylists();
+  const grid = $('#playlists-grid');
+  const empty = $('#playlists-empty');
+
+  // Always show the list view
+  $('#playlists-list-view')?.classList.remove('hidden');
+  $('#playlist-detail-view')?.classList.add('hidden');
+
+  if (!grid) return;
+
+  if (!playlists.length) {
+    grid.innerHTML = '';
+    empty?.classList.remove('hidden');
+    return;
+  }
+
+  empty?.classList.add('hidden');
+  grid.innerHTML = playlists.map(pl => `
+    <div class="playlist-card glass-card" data-plid="${escapeAttr(pl.id)}">
+      <div class="playlist-card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="32" height="32">
+          <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+          <line x1="8" y1="18" x2="21" y2="18"/>
+        </svg>
+      </div>
+      <div class="playlist-card-info">
+        <p class="playlist-card-name">${escapeHTML(pl.name)}</p>
+        <p class="playlist-card-count">${pl.songs.length} song${pl.songs.length !== 1 ? 's' : ''}</p>
+      </div>
+      <button class="btn-primary playlist-open-btn" data-plid="${escapeAttr(pl.id)}">Open</button>
+    </div>
+  `).join('');
+
+  grid.querySelectorAll('.playlist-open-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPlaylist(btn.dataset.plid);
+    });
+  });
+  grid.querySelectorAll('.playlist-card').forEach(card => {
+    card.addEventListener('click', () => openPlaylist(card.dataset.plid));
+  });
+}
+
+function openPlaylist(id) {
+  const playlists = getPlaylists();
+  const pl = playlists.find(p => p.id === id);
+  if (!pl) return;
+
+  state.currentPlaylistId = id;
+
+  const nameEl  = $('#playlist-detail-name');
+  const countEl = $('#playlist-detail-count');
+  const grid    = $('#playlist-detail-grid');
+  const empty   = $('#playlist-detail-empty');
+  const playBtn = $('#btn-play-playlist');
+
+  if (nameEl)  nameEl.textContent  = pl.name;
+  if (countEl) countEl.textContent = `${pl.songs.length} song${pl.songs.length !== 1 ? 's' : ''}`;
+
+  $('#playlists-list-view')?.classList.add('hidden');
+  $('#playlist-detail-view')?.classList.remove('hidden');
+
+  if (playBtn) playBtn.classList.toggle('hidden', pl.songs.length === 0);
+
+  if (!grid) return;
+
+  if (!pl.songs.length) {
+    grid.innerHTML = '';
+    empty?.classList.remove('hidden');
+    return;
+  }
+
+  empty?.classList.add('hidden');
+
+  const items = pl.songs.map(s => ({
+    id: { videoId: s.videoId },
+    videoId: s.videoId,
+    snippet: { title: s.title, channelTitle: s.channel, thumbnails: { medium: { url: s.thumb } } }
+  }));
+  state.searchResults = items;
+
+  grid.innerHTML = items.map((item, idx) => {
+    const thumb   = item.snippet?.thumbnails?.medium?.url || '';
+    const title   = decodeHTMLEntities(item.snippet?.title || '');
+    const channel = item.snippet?.channelTitle || '';
+    const videoId = item.id?.videoId || '';
+    return `
+      <div class="result-card" data-index="${idx}" data-videoid="${escapeAttr(videoId)}" role="article">
+        <img class="result-thumb" src="${thumb}" alt="${escapeAttr(title)}" loading="lazy" />
+        <div class="result-info">
+          <p class="result-title" title="${escapeAttr(title)}">${title}</p>
+          <p class="result-channel">${escapeHTML(channel)}</p>
+          <div class="card-actions">
+            <button class="btn-primary result-play-btn" data-index="${idx}" aria-label="Play ${escapeAttr(title)}">▶ Play</button>
+            <button class="btn-like${getLikedIds().has(videoId) ? ' liked' : ''}" data-videoid="${escapeAttr(videoId)}" data-title="${escapeAttr(title)}" data-channel="${escapeAttr(channel)}" data-thumb="${escapeAttr(thumb)}" aria-label="Like ${escapeAttr(title)}">
+              <svg viewBox="0 0 24 24" fill="${getLikedIds().has(videoId) ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+              </svg>
+            </button>
+            <button class="btn-card-action btn-remove-from-playlist" data-videoid="${escapeAttr(videoId)}" aria-label="Remove from playlist" title="Remove">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14H6L5,6"/><path d="M10,11v6"/><path d="M14,11v6"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  bindCardEvents(grid);
+  grid.querySelectorAll('.btn-remove-from-playlist').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeSongFromPlaylist(state.currentPlaylistId, btn.dataset.videoid);
+      openPlaylist(state.currentPlaylistId);
+    });
+  });
+}
+
+function openAddToPlaylistModal(item) {
+  const videoId = item.id?.videoId || item.videoId || '';
+  const title   = decodeHTMLEntities(item.snippet?.title || '');
+  const channel = item.snippet?.channelTitle || '';
+  const thumb   = item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || '';
+
+  state.addToPlaylistTarget = { videoId, title, channel, thumb };
+
+  const playlists = getPlaylists();
+  const pickerList = $('#playlist-picker-list');
+  if (pickerList) {
+    if (!playlists.length) {
+      pickerList.innerHTML = '<p style="color:var(--text-secondary);font-size:0.85rem;text-align:center;padding:8px 0">No playlists yet.</p>';
+    } else {
+      pickerList.innerHTML = playlists.map(pl => `
+        <button class="playlist-picker-item" data-plid="${escapeAttr(pl.id)}">
+          <span class="playlist-picker-name">${escapeHTML(pl.name)}</span>
+          <span class="playlist-picker-count">${pl.songs.length} songs</span>
+        </button>
+      `).join('');
+      pickerList.querySelectorAll('.playlist-picker-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const added = addSongToPlaylist(btn.dataset.plid, state.addToPlaylistTarget);
+          closeModal('modal-add-to-playlist');
+          showToast(added ? `Added to ${btn.querySelector('.playlist-picker-name').textContent}` : 'Already in that playlist', added ? 'success' : 'info', 2500);
+          state.addToPlaylistTarget = null;
+        });
+      });
+    }
+  }
+
+  openModal('modal-add-to-playlist');
+}
+
+// ═══════════════════════════════════════════════════════════
+// SLEEP TIMER
+// ═══════════════════════════════════════════════════════════
+function setSleepTimer(minutes) {
+  if (state.sleepTimerId) {
+    clearTimeout(state.sleepTimerId);
+    state.sleepTimerId = null;
+  }
+  if (!minutes || minutes <= 0) return;
+  showToast(`Sleep timer set for ${minutes} minutes 😴`, 'info', 3000);
+  state.sleepTimerId = setTimeout(() => {
+    if (state.ytPlayer && state.ytReady && state.isPlaying) {
+      state.ytPlayer.pauseVideo();
+    }
+    showToast('Sleep timer: playback paused 😴', 'info', 5000);
+    state.sleepTimerId = null;
+    const sel = $('#sleep-timer-select');
+    if (sel) sel.value = '0';
+  }, minutes * 60 * 1000);
+}
+
+// ═══════════════════════════════════════════════════════════
+// SHARE SONG
+// ═══════════════════════════════════════════════════════════
+function shareCurrentSong() {
+  if (state.currentIndex < 0 || !state.searchResults.length) {
+    showToast('Nothing is playing yet.', 'info', 2500);
+    return;
+  }
+  const item    = state.searchResults[state.currentIndex];
+  const videoId = item?.id?.videoId || item?.videoId || '';
+  const title   = decodeHTMLEntities(item?.snippet?.title || 'Check this out');
+  const url     = `https://www.youtube.com/watch?v=${videoId}`;
+
+  if (navigator.share) {
+    navigator.share({ title, url, text: `🎵 ${title} — Listen on Cipher Music` }).catch(() => {});
+  } else {
+    navigator.clipboard?.writeText(url).then(() => {
+      showToast('Link copied to clipboard! 🔗', 'success', 3000);
+    }).catch(() => {
+      showToast(`Share: ${url}`, 'info', 6000);
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════════════════════════
+function handleKeyboardShortcuts(e) {
+  // Don't fire shortcuts when typing in an input/textarea
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+
+  const authViews = ['login', 'signup', 'verify', 'forgot', 'reset'];
+  if (authViews.includes(state.currentView)) return;
+
+  switch (e.key) {
+    case ' ':
+      e.preventDefault();
+      togglePlayPause();
+      break;
+    case 'ArrowLeft':
+      e.preventDefault();
+      playPrev();
+      break;
+    case 'ArrowRight':
+      e.preventDefault();
+      playNext();
+      break;
+    case 'l':
+    case 'L': {
+      // Like/unlike the currently playing song
+      if (state.currentIndex >= 0 && state.searchResults[state.currentIndex]) {
+        const item    = state.searchResults[state.currentIndex];
+        const videoId = item?.id?.videoId || item?.videoId || '';
+        const title   = decodeHTMLEntities(item?.snippet?.title || '');
+        const channel = item?.snippet?.channelTitle || '';
+        const thumb   = item?.snippet?.thumbnails?.medium?.url || item?.snippet?.thumbnails?.default?.url || '';
+        if (videoId) {
+          let liked = getLiked();
+          const idx = liked.findIndex(s => s.videoId === videoId);
+          if (idx === -1) {
+            liked.push({ videoId, title, channel, thumb });
+            showToast('Added to Liked Songs ♥', 'success', 2000);
+          } else {
+            liked.splice(idx, 1);
+            showToast('Removed from Liked Songs', 'info', 2000);
+          }
+          saveLiked(liked);
+          if (state.currentView === 'liked') populateLiked();
+        }
+      }
+      break;
+    }
+    case 'm':
+    case 'M':
+      toggleMute();
+      break;
+    case 'q':
+    case 'Q': {
+      if (state.currentIndex >= 0 && state.searchResults[state.currentIndex]) {
+        addToQueue(state.searchResults[state.currentIndex]);
+      }
+      break;
+    }
+  }
+}
+
+function toggleMute() {
+  if (!state.ytPlayer || !state.ytReady) return;
+  state.isMuted = !state.isMuted;
+  if (state.isMuted) {
+    state.ytPlayer.mute();
+    showToast('Muted 🔇', 'info', 1500);
+  } else {
+    state.ytPlayer.unMute();
+    showToast('Unmuted 🔊', 'info', 1500);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHANGELOG / WHAT'S NEW
+// ═══════════════════════════════════════════════════════════
+function maybeShowChangelog() {
+  const seen = localStorage.getItem('cipher_seen_version');
+  if (seen !== APP_VERSION) {
+    openModal('modal-changelog');
+  }
+}
+
+function dismissChangelog() {
+  localStorage.setItem('cipher_seen_version', APP_VERSION);
+  closeModal('modal-changelog');
+}
+
+// ═══════════════════════════════════════════════════════════
+// ACCENT COLOUR PICKER
+// ═══════════════════════════════════════════════════════════
+function applyAccentColor(color) {
+  document.documentElement.style.setProperty('--accent', color);
+  // Derive glow from the accent color with alpha
+  document.documentElement.style.setProperty('--accent-glow', color + '40');
+  document.documentElement.style.setProperty('--border-accent', color + '59');
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = color;
+}
+
+function loadAccentColor() {
+  const saved = localStorage.getItem('cipher_accent_color');
+  if (saved) {
+    applyAccentColor(saved);
+    const picker = $('#accent-color-picker');
+    if (picker) picker.value = saved;
+  }
+}
+
+function resetAccentColor() {
+  localStorage.removeItem('cipher_accent_color');
+  applyAccentColor('#00d4ff');
+  const picker = $('#accent-color-picker');
+  if (picker) picker.value = '#00d4ff';
+  showToast('Accent colour reset to default.', 'info', 2000);
+}
+
+// ═══════════════════════════════════════════════════════════
+// RATE APP PROMPT
+// ═══════════════════════════════════════════════════════════
+function maybeShowRatePrompt() {
+  if (state.ratePromptShown) return;
+  if (state.songsPlayed === 5) {
+    state.ratePromptShown = true;
+    // Small delay so it doesn't show right as the song starts
+    setTimeout(() => {
+      showToast('Enjoying Cipher Music? ⭐ We\'d love your feedback!', 'info', 6000);
+    }, 3000);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// MODAL HELPERS
+// ═══════════════════════════════════════════════════════════
+function openModal(id) {
+  const modal = $(`#${id}`);
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeModal(id) {
+  const modal = $(`#${id}`);
+  if (modal) modal.classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════════════════════
 // EVENT WIRING
 // ═══════════════════════════════════════════════════════════
 function bindEvents() {
@@ -1759,9 +2278,14 @@ function bindEvents() {
     }, 100);
   });
 
-  // ── Keyboard: Escape closes verify/signup/reset ──
+  // ── Keyboard: Escape closes verify/signup/reset AND modals ──
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      // Close any open modals first
+      ['modal-changelog', 'modal-create-playlist', 'modal-rename-playlist', 'modal-add-to-playlist'].forEach(id => {
+        const m = $(`#${id}`);
+        if (m && !m.classList.contains('hidden')) { closeModal(id); return; }
+      });
       if (state.currentView === 'verify') {
         if (state.pendingReset) {
           state.pendingReset = null;
@@ -1773,6 +2297,8 @@ function bindEvents() {
       } else if (state.currentView === 'reset') {
         showView('forgot');
       }
+    } else {
+      handleKeyboardShortcuts(e);
     }
   });
 
@@ -1821,6 +2347,149 @@ function bindEvents() {
     $('#sidebar')?.classList.toggle('sidebar-open');
     $('#sidebar-toggle')?.classList.toggle('active');
   });
+
+  // ── Share song ──
+  $('#btn-share-song')?.addEventListener('click', shareCurrentSong);
+
+  // ── NP panel: Add to queue ──
+  $('#btn-add-to-queue-np')?.addEventListener('click', () => {
+    if (state.currentIndex >= 0 && state.searchResults[state.currentIndex]) {
+      addToQueue(state.searchResults[state.currentIndex]);
+    }
+  });
+
+  // ── NP panel: Add to playlist ──
+  $('#btn-add-np-to-playlist')?.addEventListener('click', () => {
+    if (state.currentIndex >= 0 && state.searchResults[state.currentIndex]) {
+      openAddToPlaylistModal(state.searchResults[state.currentIndex]);
+    }
+  });
+
+  // ── Queue: Clear ──
+  $('#btn-clear-queue')?.addEventListener('click', () => {
+    state.queue = [];
+    renderQueuePanel();
+    showToast('Queue cleared.', 'info', 2000);
+  });
+
+  // ── Liked songs: Sort ──
+  $('#liked-sort')?.addEventListener('change', () => populateLiked());
+
+  // ── Playlists: Create new ──
+  $('#btn-create-playlist')?.addEventListener('click', () => {
+    const inp = $('#new-playlist-name');
+    if (inp) inp.value = '';
+    const err = $('#err-playlist-name');
+    if (err) err.textContent = '';
+    openModal('modal-create-playlist');
+    setTimeout(() => inp?.focus(), 100);
+  });
+
+  // ── Playlists: Confirm create ──
+  $('#btn-confirm-create-playlist')?.addEventListener('click', () => {
+    const inp = $('#new-playlist-name');
+    const name = inp?.value.trim();
+    const err = $('#err-playlist-name');
+    if (!name) { if (err) err.textContent = 'Please enter a name.'; return; }
+    if (err) err.textContent = '';
+    createPlaylist(name);
+    closeModal('modal-create-playlist');
+    populatePlaylists();
+    showToast(`Playlist "${name}" created! 🎵`, 'success', 2500);
+  });
+
+  $('#new-playlist-name')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('#btn-confirm-create-playlist')?.click();
+  });
+
+  // ── Playlists: Cancel create ──
+  $('#btn-cancel-create-playlist')?.addEventListener('click', () => closeModal('modal-create-playlist'));
+  $('#modal-create-playlist-overlay')?.addEventListener('click', () => closeModal('modal-create-playlist'));
+
+  // ── Playlists: Back from detail ──
+  $('#btn-back-playlists')?.addEventListener('click', () => {
+    state.currentPlaylistId = null;
+    populatePlaylists();
+  });
+
+  // ── Playlists: Play all ──
+  $('#btn-play-playlist')?.addEventListener('click', () => {
+    if (!state.searchResults.length) return;
+    showView('player');
+    playVideo(0);
+  });
+
+  // ── Playlists: Rename ──
+  $('#btn-rename-playlist')?.addEventListener('click', () => {
+    if (!state.currentPlaylistId) return;
+    const pl = getPlaylists().find(p => p.id === state.currentPlaylistId);
+    if (!pl) return;
+    const inp = $('#rename-playlist-name');
+    if (inp) inp.value = pl.name;
+    const err = $('#err-rename-playlist');
+    if (err) err.textContent = '';
+    openModal('modal-rename-playlist');
+    setTimeout(() => inp?.focus(), 100);
+  });
+
+  $('#btn-confirm-rename-playlist')?.addEventListener('click', () => {
+    const name = $('#rename-playlist-name')?.value.trim();
+    const err  = $('#err-rename-playlist');
+    if (!name) { if (err) err.textContent = 'Please enter a name.'; return; }
+    if (err) err.textContent = '';
+    renamePlaylist(state.currentPlaylistId, name);
+    closeModal('modal-rename-playlist');
+    openPlaylist(state.currentPlaylistId);
+    showToast('Playlist renamed!', 'success', 2000);
+  });
+
+  $('#rename-playlist-name')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('#btn-confirm-rename-playlist')?.click();
+  });
+
+  $('#btn-cancel-rename-playlist')?.addEventListener('click', () => closeModal('modal-rename-playlist'));
+  $('#modal-rename-playlist-overlay')?.addEventListener('click', () => closeModal('modal-rename-playlist'));
+
+  // ── Playlists: Delete ──
+  $('#btn-delete-playlist')?.addEventListener('click', () => {
+    if (!state.currentPlaylistId) return;
+    const pl = getPlaylists().find(p => p.id === state.currentPlaylistId);
+    if (pl && window.confirm(`Delete playlist "${pl.name}"? This cannot be undone.`)) {
+      deletePlaylist(state.currentPlaylistId);
+      state.currentPlaylistId = null;
+      populatePlaylists();
+      showToast('Playlist deleted.', 'info', 2000);
+    }
+  });
+
+  // ── Add to playlist modal ──
+  $('#btn-cancel-add-to-playlist')?.addEventListener('click', () => closeModal('modal-add-to-playlist'));
+  $('#modal-add-to-playlist-overlay')?.addEventListener('click', () => closeModal('modal-add-to-playlist'));
+  $('#btn-new-playlist-from-picker')?.addEventListener('click', () => {
+    closeModal('modal-add-to-playlist');
+    const inp = $('#new-playlist-name');
+    if (inp) inp.value = '';
+    const err = $('#err-playlist-name');
+    if (err) err.textContent = '';
+    openModal('modal-create-playlist');
+    setTimeout(() => inp?.focus(), 100);
+  });
+
+  // ── Changelog ──
+  $('#btn-close-changelog')?.addEventListener('click', dismissChangelog);
+  $('#modal-changelog-overlay')?.addEventListener('click', dismissChangelog);
+
+  // ── Sleep timer ──
+  $('#sleep-timer-select')?.addEventListener('change', function () {
+    setSleepTimer(parseInt(this.value, 10) || 0);
+  });
+
+  // ── Accent colour picker ──
+  $('#accent-color-picker')?.addEventListener('input', function () {
+    applyAccentColor(this.value);
+    localStorage.setItem('cipher_accent_color', this.value);
+  });
+  $('#btn-reset-accent')?.addEventListener('click', resetAccentColor);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1830,6 +2499,7 @@ function init() {
   loadUser();
   loadSettings();
   loadPlan();
+  loadAccentColor();
   updateHeaderUser();
   updateClock();
   setInterval(updateClock, 1000);
@@ -1852,6 +2522,8 @@ function init() {
     showView('forgot');
   } else if (state.user) {
     showView('player');
+    // Show changelog after a short delay so the player loads first
+    setTimeout(maybeShowChangelog, 800);
   } else {
     showView('login');
   }
