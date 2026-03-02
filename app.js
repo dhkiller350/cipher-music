@@ -61,12 +61,24 @@ function adminLog(msg) {
   console.error('[CipherAdmin]', msg); // intentionally uses the original console.error
 }
 
+/** Return today's date string in US Pacific time (where YouTube resets quota). */
+function _pacificDateString() {
+  try {
+    return new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' });
+  } catch (_) {
+    return new Date().toDateString(); // fallback for browsers without Intl timezone
+  }
+}
+
 // Load maintenance flag and quota from localStorage at startup
 (function loadAdminState() {
   adminState.maintenanceMode = localStorage.getItem(MAINT_KEY) === '1';
   const quota = JSON.parse(localStorage.getItem('cipher_quota_today') || 'null');
-  if (quota && quota.date === new Date().toDateString()) {
+  if (quota && quota.date === _pacificDateString()) {
     adminState.quotaUsedToday = quota.used || 0;
+  } else {
+    // New Pacific day — reset the counter
+    adminState.quotaUsedToday = 0;
   }
   // Intercept console.error so all uncaught errors appear in the admin log.
   // Delegate to _pushAdminLog (not adminLog) to avoid calling console.error recursively.
@@ -78,10 +90,10 @@ function adminLog(msg) {
   };
 })();
 
-/** Persist today's quota counter to localStorage. */
+/** Persist today's quota counter to localStorage (keyed by Pacific date). */
 function _saveQuota() {
   localStorage.setItem('cipher_quota_today', JSON.stringify({
-    date: new Date().toDateString(),
+    date: _pacificDateString(),
     used: adminState.quotaUsedToday
   }));
 }
@@ -1163,6 +1175,12 @@ function decodeHTMLEntities(str) {
 // ═══════════════════════════════════════════════════════════
 // YOUTUBE SEARCH
 // ═══════════════════════════════════════════════════════════
+
+// In-session search cache — keyed by "query|channelId".
+// Survives page navigation within the tab but clears on close.
+// Avoids burning 100 quota units for repeated searches.
+let _searchCache = {};
+
 /**
  * Search YouTube for videos matching `query`.
  * @param {string} query  - Search terms
@@ -1174,6 +1192,10 @@ async function searchYouTube(query, channelId = '') {
   if (adminState.maintenanceMode && !adminState.isAdminSession) {
     throw Object.assign(new Error('maintenance'), { code: 'MAINTENANCE' });
   }
+
+  // ── Cache check ──────────────────────────────────────────
+  const cacheKey = `${query}|${channelId}`;
+  if (_searchCache[cacheKey]) return _searchCache[cacheKey];
 
   const url = new URL('https://www.googleapis.com/youtube/v3/search');
   url.searchParams.set('part', 'snippet');
@@ -1228,7 +1250,10 @@ async function searchYouTube(query, channelId = '') {
   adminState.quotaUsedToday = (adminState.quotaUsedToday || 0) + 100;
   _saveQuota();
 
-  return filterMusicOnly(data.items || []);
+  const results = filterMusicOnly(data.items || []);
+  // Store in session cache to avoid redundant API calls
+  _searchCache[cacheKey] = results;
+  return results;
 }
 
 /**
@@ -1379,6 +1404,20 @@ function escapeAttr(str) {
     .replace(/>/g, '&gt;');
 }
 
+/**
+ * Clear the local quota counter and session search cache, then retry the search.
+ * Called when the user taps "Reset & Try Again" on the quota-exceeded error screen.
+ */
+function resetQuotaAndRetry() {
+  // Clear local quota counter so a fresh day starts
+  adminState.quotaUsedToday = 0;
+  localStorage.removeItem('cipher_quota_today');
+  // Clear session search cache so results are fetched fresh
+  _searchCache = {};
+  // Retry the current search
+  handleSearch();
+}
+
 async function handleSearch(query, channelId = '') {
   const q = query || $('#search-input')?.value.trim();
   if (!q) return;
@@ -1402,7 +1441,7 @@ async function handleSearch(query, channelId = '') {
       action = 'We\'ll be back shortly! Check back soon.';
     } else if (code === 'QUOTA') {
       msg = '⚠️ Daily search limit reached.';
-      action = 'We\'ve hit the daily YouTube quota. Try again after midnight (Pacific time).';
+      action = 'We\'ve hit the daily YouTube quota. Try again after midnight (Pacific time), or tap the button below to reset and retry.';
     } else if (code === 'KEY_INVALID') {
       msg = '⚠️ Service configuration error.';
       action = 'Please contact support. (API key issue)';
@@ -1415,10 +1454,13 @@ async function handleSearch(query, channelId = '') {
     } else {
       action = err.message || 'An unexpected error occurred.';
     }
+    const retryBtn = code === 'QUOTA'
+      ? '<button class="btn-primary btn-retry-search" onclick="resetQuotaAndRetry()">🔄 Reset &amp; Try Again</button>'
+      : '<button class="btn-primary btn-retry-search" onclick="handleSearch()">↺ Retry</button>';
     grid.innerHTML = `<div class="empty-state search-error-state">
       <p class="search-error-title">${msg}</p>
       <p class="search-error-detail">${action}</p>
-      <button class="btn-primary btn-retry-search" onclick="handleSearch()">↺ Retry</button>
+      ${retryBtn}
     </div>`;
   }
 }
@@ -3257,8 +3299,9 @@ function init() {
     document.getElementById('maintenance-banner')?.classList.remove('hidden');
   }
 
-  // Open admin panel if ?debug=1 is in the URL
-  if (new URLSearchParams(window.location.search).get('debug') === '1') {
+  // Open admin panel if ?debug=1 or ?admin=1 is in the URL
+  const _params = new URLSearchParams(window.location.search);
+  if (_params.get('debug') === '1' || _params.get('admin') === '1') {
     setTimeout(() => {
       const hasPin = !!localStorage.getItem(ADMIN_PIN_KEY);
       if (!hasPin) {
@@ -3281,12 +3324,31 @@ document.addEventListener('DOMContentLoaded', init);
 // ═══════════════════════════════════════════════════════════
 
 function initAdminPanel() {
-  // Ctrl+Shift+D (desktop) or 5-tap on the version footer (mobile)
+  // Ctrl+Shift+D (desktop)
   document.addEventListener('keydown', e => {
     if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
       e.preventDefault();
       openAdminPanel();
     }
+  });
+
+  // 5-tap on the app logo / header title (mobile shortcut)
+  const TAP_TIMEOUT_MS = 2000; // window in which 5 taps must occur
+  let _tapCount = 0, _tapTimer = null;
+  const tapTargets = ['.header-brand', '.brand-name', '.logo-icon'];
+  tapTargets.forEach(sel => {
+    const el = document.querySelector(sel);
+    if (!el) return;
+    el.addEventListener('click', () => {
+      _tapCount++;
+      clearTimeout(_tapTimer);
+      if (_tapCount >= 5) {
+        _tapCount = 0;
+        openAdminPanel();
+        return;
+      }
+      _tapTimer = setTimeout(() => { _tapCount = 0; }, TAP_TIMEOUT_MS);
+    });
   });
 }
 

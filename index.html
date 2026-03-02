@@ -1326,6 +1326,7 @@
         <section class="admin-section">
           <h4 class="admin-section-title">Actions</h4>
           <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminClearCache()">🗑 Clear Cache &amp; Reload</button>
+          <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="resetQuotaAndRetry();showToast('Quota counter reset.',\'success\')">🔄 Reset Quota Cache</button>
           <div class="form-group" style="margin-top:8px">
             <label for="admin-change-pin-input">New PIN (digits only, min 4)</label>
             <input type="password" id="admin-change-pin-input" inputmode="numeric" pattern="\d*"
