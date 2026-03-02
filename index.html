@@ -747,28 +747,34 @@
             <h3 class="payment-title">Complete Your Subscription</h3>
             <p class="payment-selected-plan" id="selected-plan-label">Pro Pack — $9.99/mo</p>
 
+            <!-- Payment reference — user MUST include this in their payment note -->
+            <div class="pay-ref-box">
+              <p class="pay-ref-label">📌 Your Payment Reference (include in note/memo):</p>
+              <p id="pay-ref-code" class="pay-ref-code">—</p>
+            </div>
+
             <!-- How to pay -->
             <div class="payment-methods">
               <div class="payment-method-card cashapp-method">
                 <p class="payment-method-title">💵 Pay via CashApp</p>
                 <a class="cashapp-tag" href="https://cash.app/$CIPHERPREMIUM" target="_blank" rel="noopener">$CIPHERPREMIUM</a>
-                <p class="cashapp-note">Send the exact plan amount to the CashApp above, then confirm below.</p>
+                <p id="pay-cashapp-note-hint" class="cashapp-note">Send the exact plan amount and include your reference in the note.</p>
               </div>
               <div class="payment-method-divider">or</div>
               <div class="payment-method-card bank-method">
-                <p class="payment-method-title">🏦 Fifth Third Bank — Zelle</p>
+                <p class="payment-method-title">🏦 Fifth Third Bank — Direct Transfer</p>
                 <div class="bank-details">
                   <div class="bank-row"><span class="bank-label">Bank</span><span class="bank-value">Fifth Third Bank</span></div>
-                  <div class="bank-row"><span class="bank-label">Zelle / Bank email</span><span class="bank-value">payments@ciphermusic.app</span></div>
-                  <div class="bank-row"><span class="bank-label">Name on account</span><span class="bank-value">Cipher Music LLC</span></div>
+                  <div class="bank-row"><span class="bank-label">Account holder</span><span class="bank-value">Cipher Music LLC</span></div>
+                  <div class="bank-row"><span class="bank-label">Contact for details</span><span class="bank-value">payments@ciphermusic.app</span></div>
                 </div>
-                <p class="cashapp-note">Send the exact plan amount, then confirm below.</p>
+                <p id="pay-bank-ref-hint" class="cashapp-note">Include your reference in the transfer memo/note, then confirm below.</p>
               </div>
             </div>
 
-            <!-- Confirm payment -->
+            <!-- Confirm payment (step 1) -->
             <form id="payment-form" novalidate>
-              <h4 class="payment-confirm-title">Confirm Your Payment</h4>
+              <h4 class="payment-confirm-title">Step 1 — Confirm You've Sent Payment</h4>
               <div class="form-group">
                 <label for="pay-name">Your Name</label>
                 <input type="text" id="pay-name" placeholder="Jane Doe" autocomplete="name" />
@@ -782,12 +788,28 @@
               <div class="form-group pay-confirm-check">
                 <label class="check-label">
                   <input type="checkbox" id="pay-confirm" />
-                  <span>I have sent my payment via CashApp or bank transfer</span>
+                  <span>I have sent payment with the reference above</span>
                 </label>
                 <span class="field-error" id="err-pay-confirm"></span>
               </div>
-              <button type="submit" class="btn-primary btn-full">Activate Plan</button>
+              <button type="submit" class="btn-primary btn-full">I've Sent Payment →</button>
             </form>
+
+            <!-- Activation code entry (step 2 — shown after step 1) -->
+            <div id="payment-activation-section" class="hidden">
+              <h4 class="payment-confirm-title">Step 2 — Enter Your Activation Code</h4>
+              <p class="cashapp-note">After we verify your payment, we'll email you a 10-character activation code. Enter it below to unlock your plan.</p>
+              <p class="cashapp-note pay-ref-reminder">Your reference: <strong id="activation-ref-display">—</strong></p>
+              <div class="form-group">
+                <label for="activation-code-input">Activation Code</label>
+                <input type="text" id="activation-code-input" placeholder="e.g. A1B2C3D4E5" maxlength="10"
+                       autocapitalize="characters" autocomplete="off" spellcheck="false"
+                       aria-label="Activation code" aria-describedby="err-activation-code" />
+                <span class="field-error" id="err-activation-code" role="alert"></span>
+              </div>
+              <button id="btn-activate-plan" class="btn-primary btn-full">Activate Plan</button>
+            </div>
+
             <div id="payment-success" class="success-message hidden">
               <svg viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2" width="48" height="48">
                 <polyline points="20,6 9,17 4,12"/>

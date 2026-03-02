@@ -10,7 +10,26 @@ const CONFIG = {
   EMAILJS_PUBLIC_KEY:  "IJSM7Zp-wxJkkxVN7"
 };
 
-const APP_VERSION = '2.2'; // bump to show changelog on next load
+const APP_VERSION = '2.7'; // bump to show changelog on next load
+
+// ── API key sanity check (runs once at startup) ────────────
+(function checkApiKey() {
+  if (!CONFIG.YOUTUBE_API_KEY || CONFIG.YOUTUBE_API_KEY.length < 20) {
+    console.error('[Cipher] YouTube API key is missing or invalid!');
+    return;
+  }
+  // Lightweight quota-free check: use the search API with maxResults=1
+  fetch(`https://www.googleapis.com/youtube/v3/search?part=id&type=video&q=test&maxResults=1&key=${CONFIG.YOUTUBE_API_KEY}`)
+    .then(r => {
+      if (r.ok) {
+        console.info('[Cipher] YouTube API key ✓ (status', r.status, ')');
+      } else {
+        console.warn('[Cipher] YouTube API key check returned HTTP', r.status,
+          '— key may be invalid or quota exceeded.');
+      }
+    })
+    .catch(err => console.warn('[Cipher] YouTube API key check failed:', err.message));
+})();
 
 // ── State ──────────────────────────────────────────────────
 const AD_FREQUENCY        = 5;   // songs between ads for free users
@@ -27,6 +46,7 @@ const state = {
   ytReady: false,
   isPlaying: false,
   selectedPlan: null,
+  paymentRef: null,             // unique reference for the current payment attempt
   pendingSignup: null,      // { username, email, passwordHash }
   pendingCode: null,        // 6-digit string
   pendingReset: null,       // { email } – set during password-reset flow
@@ -88,26 +108,30 @@ async function releaseWakeLock() {
 }
 
 // ── Visibility / background tracking ─────────────────────
-// Tracks whether music was actively playing when the screen was locked or
-// the user switched apps.  Used to resume after iOS force-pauses the player.
+// Tracks whether the user deliberately paused (in foreground) vs. the OS
+// force-pausing the player when the screen locks or the user switches apps.
+let _userExplicitlyPaused = false; // set only by the user's own tap/click
 let _wasPlayingWhenHidden = false;
+let _bgResumeTimer        = null;  // debounce timer for auto-resume
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
-    // Record playback state NOW, before iOS has a chance to trigger PAUSED
-    _wasPlayingWhenHidden = state.isPlaying;
+    // Record playback state before iOS can fire PAUSED.
+    // Also keep the flag from a PAUSED event that arrived first (race-condition).
+    _wasPlayingWhenHidden = _wasPlayingWhenHidden || state.isPlaying;
   } else {
     // Coming back to foreground (screen unlocked / app switched back)
+    clearTimeout(_bgResumeTimer);
     requestWakeLock();
-    if (_wasPlayingWhenHidden) {
-      _wasPlayingWhenHidden = false; // reset so we don't re-resume on next cycle
+    if (_wasPlayingWhenHidden && !_userExplicitlyPaused) {
+      _wasPlayingWhenHidden = false;
       startBgAudioKeepAlive();
       // iOS may have force-paused the YouTube player while we were hidden.
-      // If so, resume it automatically.
       if (!state.isPlaying && state.ytPlayer && state.ytReady) {
         state.ytPlayer.playVideo();
       }
     }
+    _wasPlayingWhenHidden = false;
   }
 });
 
@@ -117,9 +141,9 @@ document.addEventListener('visibilitychange', () => {
 // background playback.  "freeze" fires when the browser suspends the page
 // (Page Lifecycle API); we simply keep the AudioContext alive.
 window.addEventListener('pagehide', (e) => {
-  // e.persisted === true → page is entering the back/forward cache (bfcache).
-  // Keep the audio session open so music continues in the background.
-  if (e.persisted && state.isPlaying) {
+  // Keep the audio session open so music continues in the background,
+  // whether the page is being cached (persisted) or navigated away.
+  if (state.isPlaying) {
     startBgAudioKeepAlive();
   }
 });
@@ -734,10 +758,11 @@ function onPlayerStateChange(event) {
   setSoundwavePlaying(playing);
 
   if (playing) {
+    _userExplicitlyPaused = false; // clear on any play event
+    clearTimeout(_bgResumeTimer);
     startListeningTimer();
     requestWakeLock();
     startBgAudioKeepAlive(); // keep iOS audio session alive in background
-    // Update media session playback state
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'playing';
     }
@@ -745,11 +770,25 @@ function onPlayerStateChange(event) {
     stopListeningTimer();
     if (event.data === YT.PlayerState.PAUSED) {
       releaseWakeLock();
-      // Only stop the background keep-alive when the user explicitly paused
-      // (app is in the foreground).  If the document is hidden, iOS locked the
-      // screen or the user switched apps — keep the audio session alive so
-      // playback can resume automatically when the screen comes back on.
-      if (!document.hidden) stopBgAudioKeepAlive();
+      if (document.hidden) {
+        // Screen locked or app switched — the OS paused us, NOT the user.
+        // Mark that we were playing so foreground-return can resume.
+        _wasPlayingWhenHidden = true;
+        // Attempt to auto-resume after a short delay.
+        // 800ms: long enough for iOS to finish locking the screen before we
+        // restart playback, but short enough to not cause a noticeable gap.
+        clearTimeout(_bgResumeTimer);
+        _bgResumeTimer = setTimeout(() => {
+          if (document.hidden && !_userExplicitlyPaused && state.ytPlayer && state.ytReady) {
+            startBgAudioKeepAlive();
+            state.ytPlayer.playVideo();
+          }
+        }, 800);
+      } else {
+        // User explicitly paused in foreground
+        _userExplicitlyPaused = true;
+        stopBgAudioKeepAlive();
+      }
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'paused';
       }
@@ -1049,6 +1088,7 @@ function toggleShuffle() {
 function togglePlayPause() {
   if (!state.ytPlayer || !state.ytReady) return;
   if (state.isPlaying) {
+    _userExplicitlyPaused = true; // user-initiated pause
     state.ytPlayer.pauseVideo();
   } else {
     state.ytPlayer.playVideo();
@@ -1423,6 +1463,44 @@ async function handleChangePassword(e) {
 // ═══════════════════════════════════════════════════════════
 // PAYMENT / UPGRADE
 // ═══════════════════════════════════════════════════════════
+
+/**
+ * Generate a unique payment reference ID for this upgrade attempt.
+ * This reference MUST be included in the CashApp note so the owner
+ * can match the payment to the correct account.
+ */
+function generatePaymentRef() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // unambiguous chars
+  // Use crypto.getRandomValues for unpredictable, non-colliding references
+  const bytes = new Uint8Array(8);
+  (window.crypto || crypto).getRandomValues(bytes);
+  let ref = 'CPH-';
+  for (let i = 0; i < 8; i++) ref += chars[bytes[i] % chars.length];
+  return ref;
+}
+
+/**
+ * Deterministic activation code tied to plan + email + ref.
+ * Owner computes this offline with the same inputs, then sends it to the user.
+ *
+ * OWNER TOOL: run this in browser console to generate codes:
+ *   generateActivationCode('pro',     'user@email.com', 'CPH-XXXXXXXX')
+ *   generateActivationCode('premium', 'user@email.com', 'CPH-XXXXXXXX')
+ */
+function generateActivationCode(plan, email, ref) {
+  const input = `${plan}|${email.trim().toLowerCase()}|${ref}|CM2026_CIPHER`;
+  let h1 = 0xDEADBEEF, h2 = 0x41C6CE57;
+  for (let i = 0; i < input.length; i++) {
+    const c = input.charCodeAt(i);
+    h1 = (Math.imul(h1 ^ c, 2654435761) >>> 0);
+    h2 = (Math.imul(h2 ^ c, 1597334677) >>> 0);
+  }
+  h1 = (Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)) >>> 0;
+  h2 = (Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)) >>> 0;
+  return ((h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0'))
+    .toUpperCase().slice(0, 10);
+}
+
 function selectPlan(plan) {
   state.selectedPlan = plan;
 
@@ -1430,6 +1508,7 @@ function selectPlan(plan) {
   const success = $('#payment-success');
   const form    = $('#payment-form');
   const planLabel = $('#selected-plan-label');
+  const activationSection = $('#payment-activation-section');
 
   if (plan === 'free') {
     section?.classList.add('hidden');
@@ -1441,7 +1520,19 @@ function selectPlan(plan) {
   const planNames = { pro: 'Pro Pack — $9.99/mo', premium: 'Premium — $19.99/mo' };
   if (planLabel) planLabel.textContent = planNames[plan] || plan;
 
+  // Generate a fresh payment reference for this attempt
+  const ref = generatePaymentRef();
+  state.paymentRef = ref;
+  const refDisplay = $('#pay-ref-code');
+  if (refDisplay) refDisplay.textContent = ref;
+  // Pre-fill the payment hint text with the unique reference
+  const cashAppNoteHint = $('#pay-cashapp-note-hint');
+  if (cashAppNoteHint) cashAppNoteHint.textContent = `Include "${ref}" in your CashApp note`;
+  const bankRefHint = $('#pay-bank-ref-hint');
+  if (bankRefHint) bankRefHint.textContent = `Include "${ref}" in the transfer reference/memo`;
+
   success?.classList.add('hidden');
+  activationSection?.classList.add('hidden');
   form?.classList.remove('hidden');
   section?.classList.remove('hidden');
   section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1479,6 +1570,27 @@ function loadPlan() {
   updatePlanBadge();
   updateProfilePlanCard();
   applyPlanGates();
+
+  // If there's a pending payment, restore the activation-code form
+  if (state.activePlan === 'pending') {
+    const pending = JSON.parse(localStorage.getItem('cipher_pending_payment') || 'null');
+    if (pending) {
+      state.selectedPlan = pending.plan;
+      state.paymentRef   = pending.ref;
+      const section = $('#payment-form-section');
+      const planLabel = $('#selected-plan-label');
+      const planNames = { pro: 'Pro Pack — $9.99/mo', premium: 'Premium — $19.99/mo' };
+      if (planLabel) planLabel.textContent = planNames[pending.plan] || pending.plan;
+      $('#payment-form')?.classList.add('hidden');
+      const activationSection = $('#payment-activation-section');
+      if (activationSection) {
+        activationSection.classList.remove('hidden');
+        const dispRef = $('#activation-ref-display');
+        if (dispRef) dispRef.textContent = pending.ref;
+      }
+      section?.classList.remove('hidden');
+    }
+  }
 }
 
 function savePlan(plan) {
@@ -1499,6 +1611,9 @@ function updatePlanBadge() {
   } else if (state.activePlan === 'premium') {
     badge.textContent = '💎 Premium';
     badge.className = 'plan-badge plan-badge-premium';
+  } else if (state.activePlan === 'pending') {
+    badge.textContent = '⏳ Pending';
+    badge.className = 'plan-badge plan-badge-pending';
   } else {
     badge.className = 'plan-badge hidden';
   }
@@ -1806,14 +1921,52 @@ function handlePayment(e) {
   e.preventDefault();
   if (!validatePayment()) return;
 
-  savePlan(state.selectedPlan || 'pro');
+  const plan  = state.selectedPlan || 'pro';
+  const email = $('#pay-email')?.value.trim() || '';
+  const ref   = state.paymentRef || generatePaymentRef();
+
+  // Store the pending payment — plan is NOT activated yet
+  const pending = { plan, email, ref, ts: Date.now() };
+  localStorage.setItem('cipher_pending_payment', JSON.stringify(pending));
+  savePlan('pending');
+
+  // Show the activation-code entry form (hide the send-payment form)
+  $('#payment-form')?.classList.add('hidden');
+  $('#payment-activation-section')?.classList.remove('hidden');
+  const dispRef = $('#activation-ref-display');
+  if (dispRef) dispRef.textContent = ref;
+  showToast('Payment submitted! Enter your activation code to unlock your plan.', 'info', 5000);
+}
+
+/** Called when the user enters their activation code from the owner. */
+function handleActivationCode() {
+  const pending = JSON.parse(localStorage.getItem('cipher_pending_payment') || 'null');
+  if (!pending) { showToast('No pending payment found. Please start over.', 'error'); return; }
+
+  const entered = ($('#activation-code-input')?.value || '').trim().toUpperCase();
+  const expected = generateActivationCode(pending.plan, pending.email, pending.ref);
+
+  if (entered !== expected) {
+    setFieldError('err-activation-code', 'Invalid code — please check the code sent to your email.');
+    return;
+  }
+  setFieldError('err-activation-code', '');
+
+  // Code is correct — activate the plan
+  localStorage.removeItem('cipher_pending_payment');
+  savePlan(pending.plan);
   const planNames = { pro: 'Pro Pack', premium: 'Premium' };
-  const planName = planNames[state.selectedPlan] || 'Pro Pack';
+  const planName = planNames[pending.plan] || 'Pro Pack';
   const titleEl = $('#payment-success-title');
   if (titleEl) titleEl.textContent = `You're now a Cipher ${planName} member! 🎉`;
-  $('#payment-form')?.classList.add('hidden');
+  $('#payment-activation-section')?.classList.add('hidden');
   $('#payment-success')?.classList.remove('hidden');
-  showToast('Subscribed to Cipher ' + planName + '! 🎉', 'success');
+  showToast('Welcome to Cipher ' + planName + '! 🎉', 'success');
+}
+
+function setFieldError(id, msg) {
+  const el = $(`#${id}`);
+  if (el) el.textContent = msg;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2522,6 +2675,7 @@ function bindEvents() {
 
   // ── Payment form ──
   $('#payment-form')?.addEventListener('submit', handlePayment);
+  $('#btn-activate-plan')?.addEventListener('click', handleActivationCode);
 
   // ── Gated settings: intercept clicks on locked rows ──
   document.addEventListener('click', e => {
