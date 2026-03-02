@@ -1342,13 +1342,23 @@ window.addEventListener('beforeinstallprompt', (e) => {
   state.deferredInstallPrompt = e;
   const btn = $('#btn-install-app');
   if (btn) btn.classList.add('install-available');
+  // Show install banner if not previously dismissed
+  if (!sessionStorage.getItem('pwa-banner-dismissed')) {
+    const banner = $('#pwa-install-banner');
+    if (banner) banner.classList.remove('hidden');
+  }
 });
 
 function handleInstallApp() {
   if (state.deferredInstallPrompt) {
     state.deferredInstallPrompt.prompt();
-    state.deferredInstallPrompt.userChoice.then(() => {
+    state.deferredInstallPrompt.userChoice.then((choice) => {
       state.deferredInstallPrompt = null;
+      const banner = $('#pwa-install-banner');
+      if (banner) banner.classList.add('hidden');
+      if (choice.outcome === 'accepted') {
+        showToast('Cipher Music installed! 🎉', 'success');
+      }
     });
   } else {
     showToast('To install: tap Share → "Add to Home Screen" (iOS) or menu → "Add to Home Screen" (Android)', 'info', 6000);
@@ -1772,6 +1782,14 @@ function bindEvents() {
 
   // ── Install app ──
   $('#btn-install-app')?.addEventListener('click', handleInstallApp);
+
+  // ── PWA install banner ──
+  $('#btn-pwa-install')?.addEventListener('click', handleInstallApp);
+  $('#btn-pwa-dismiss')?.addEventListener('click', () => {
+    const banner = $('#pwa-install-banner');
+    if (banner) banner.classList.add('hidden');
+    sessionStorage.setItem('pwa-banner-dismissed', '1');
+  });
 
   // ── Hamburger sidebar toggle ──
   $('#sidebar-toggle')?.addEventListener('click', () => {
