@@ -430,7 +430,6 @@ a:hover { text-decoration: underline; }
    ═══════════════════════════════════════════════════════════ */
 #view-login {
   min-height: calc(100vh - var(--header-h));
-  display: flex;
   align-items: center;
   justify-content: center;
   background: radial-gradient(ellipse at 30% 50%, rgba(124,58,237,0.12) 0%, transparent 60%),
@@ -1131,12 +1130,13 @@ a:hover { text-decoration: underline; }
 }
 
 /* ═══════════════════════════════════════════════════════════
-   SIGN-UP & VERIFY VIEWS
+   SIGN-UP, VERIFY, FORGOT & RESET VIEWS
    ═══════════════════════════════════════════════════════════ */
 #view-signup,
-#view-verify {
+#view-verify,
+#view-forgot,
+#view-reset {
   min-height: calc(100vh - var(--header-h));
-  display: flex;
   align-items: center;
   justify-content: center;
   background: radial-gradient(ellipse at 70% 50%, rgba(124,58,237,0.12) 0%, transparent 60%),
@@ -1145,7 +1145,9 @@ a:hover { text-decoration: underline; }
 }
 
 #view-signup.active,
-#view-verify.active { display: flex; }
+#view-verify.active,
+#view-forgot.active,
+#view-reset.active { display: flex; }
 
 .verify-email-addr {
   color: var(--accent);
