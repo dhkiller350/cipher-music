@@ -725,17 +725,15 @@ function populateLiked() {
   const sortVal = sortEl?.value || 'date-desc';
   liked = [...liked];
   if (sortVal === 'date-asc') {
-    // oldest first — they are stored newest-first so just reverse
+    liked.reverse();
   } else if (sortVal === 'title-asc') {
     liked.sort((a, b) => a.title.localeCompare(b.title));
   } else if (sortVal === 'title-desc') {
     liked.sort((a, b) => b.title.localeCompare(a.title));
   } else if (sortVal === 'channel') {
     liked.sort((a, b) => a.channel.localeCompare(b.channel));
-  } else if (sortVal === 'date-asc') {
-    liked.reverse();
   }
-  // date-desc is default (as stored)
+  // date-desc is the default order (as stored)
 
   // Build fake "items" compatible with renderResults
   const items = liked.map(s => ({
@@ -1823,7 +1821,12 @@ function shareCurrentSong() {
   const url     = `https://www.youtube.com/watch?v=${videoId}`;
 
   if (navigator.share) {
-    navigator.share({ title, url, text: `🎵 ${title} — Listen on Cipher Music` }).catch(() => {});
+    navigator.share({ title, url, text: `🎵 ${title} — Listen on Cipher Music` }).catch(() => {
+      // Share was dismissed or failed; fall back to clipboard
+      navigator.clipboard?.writeText(url).then(() => {
+        showToast('Link copied to clipboard! 🔗', 'success', 3000);
+      }).catch(() => {});
+    });
   } else {
     navigator.clipboard?.writeText(url).then(() => {
       showToast('Link copied to clipboard! 🔗', 'success', 3000);
@@ -2281,11 +2284,16 @@ function bindEvents() {
   // ── Keyboard: Escape closes verify/signup/reset AND modals ──
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      // Close any open modals first
-      ['modal-changelog', 'modal-create-playlist', 'modal-rename-playlist', 'modal-add-to-playlist'].forEach(id => {
+      // Close the first open modal found and stop
+      const modalIds = ['modal-changelog', 'modal-create-playlist', 'modal-rename-playlist', 'modal-add-to-playlist'];
+      const openModalId = modalIds.find(id => {
         const m = $(`#${id}`);
-        if (m && !m.classList.contains('hidden')) { closeModal(id); return; }
+        return m && !m.classList.contains('hidden');
       });
+      if (openModalId) {
+        closeModal(openModalId);
+        return;
+      }
       if (state.currentView === 'verify') {
         if (state.pendingReset) {
           state.pendingReset = null;
