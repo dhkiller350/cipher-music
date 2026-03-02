@@ -10,26 +10,76 @@ const CONFIG = {
   EMAILJS_PUBLIC_KEY:  "IJSM7Zp-wxJkkxVN7"
 };
 
-const APP_VERSION = '2.7'; // bump to show changelog on next load
+const APP_VERSION = '2.8'; // bump to show changelog on next load
 
-// ── API key sanity check (runs once at startup) ────────────
-(function checkApiKey() {
-  if (!CONFIG.YOUTUBE_API_KEY || CONFIG.YOUTUBE_API_KEY.length < 20) {
-    console.error('[Cipher] YouTube API key is missing or invalid!');
-    return;
+// ── API key presence check (no network call — save quota) ──
+if (!CONFIG.YOUTUBE_API_KEY || CONFIG.YOUTUBE_API_KEY.length < 20) {
+  console.error('[Cipher] YOUTUBE_API_KEY is missing or too short — search will not work.');
+}
+
+// ── Admin / Maintenance state ──────────────────────────────
+// Loaded from localStorage so settings survive page refreshes.
+const YOUTUBE_DAILY_QUOTA  = 10000;          // YouTube Data API v3 daily quota units
+const MAX_DISPLAYED_LOGS   = 50;             // max entries shown in the admin log panel
+const ADMIN_PIN_KEY = 'cipher_admin_pin';    // localStorage key for PIN hash
+const MAINT_KEY    = 'cipher_maintenance';   // localStorage key for maintenance flag
+const _adminDefaults = { maintenanceMode: false, isAdminSession: false, quotaUsedToday: 0 };
+const adminState = Object.assign({}, _adminDefaults);
+const _adminLogs = []; // in-memory error log (max 200 entries)
+
+/**
+ * SHA-256 hash of input using Web Crypto API.
+ * Returns hex string.  Async because SubtleCrypto is async.
+ */
+async function sha256Hex(input) {
+  const encoded = new TextEncoder().encode(input);
+  const buf = await crypto.subtle.digest('SHA-256', encoded);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Push a message to the admin log.
+ * Called by the console.error interceptor — does NOT re-call console.error
+ * to avoid infinite recursion.
+ */
+function _pushAdminLog(msg) {
+  _adminLogs.unshift({ ts: new Date().toISOString(), msg: String(msg) });
+  if (_adminLogs.length > 200) _adminLogs.length = 200;
+  if (document.getElementById('admin-panel')?.classList.contains('open')) {
+    renderAdminLog();
   }
-  // Lightweight quota-free check: use the search API with maxResults=1
-  fetch(`https://www.googleapis.com/youtube/v3/search?part=id&type=video&q=test&maxResults=1&key=${CONFIG.YOUTUBE_API_KEY}`)
-    .then(r => {
-      if (r.ok) {
-        console.info('[Cipher] YouTube API key ✓ (status', r.status, ')');
-      } else {
-        console.warn('[Cipher] YouTube API key check returned HTTP', r.status,
-          '— key may be invalid or quota exceeded.');
-      }
-    })
-    .catch(err => console.warn('[Cipher] YouTube API key check failed:', err.message));
+}
+
+/** Log a message directly (also logs to console.error). */
+function adminLog(msg) {
+  _pushAdminLog(msg);
+  console.error('[CipherAdmin]', msg); // intentionally uses the original console.error
+}
+
+// Load maintenance flag and quota from localStorage at startup
+(function loadAdminState() {
+  adminState.maintenanceMode = localStorage.getItem(MAINT_KEY) === '1';
+  const quota = JSON.parse(localStorage.getItem('cipher_quota_today') || 'null');
+  if (quota && quota.date === new Date().toDateString()) {
+    adminState.quotaUsedToday = quota.used || 0;
+  }
+  // Intercept console.error so all uncaught errors appear in the admin log.
+  // Delegate to _pushAdminLog (not adminLog) to avoid calling console.error recursively.
+  const _origError = console.error.bind(console);
+  console.error = (...args) => {
+    _origError(...args);
+    const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+    _pushAdminLog(msg);
+  };
 })();
+
+/** Persist today's quota counter to localStorage. */
+function _saveQuota() {
+  localStorage.setItem('cipher_quota_today', JSON.stringify({
+    date: new Date().toDateString(),
+    used: adminState.quotaUsedToday
+  }));
+}
 
 // ── State ──────────────────────────────────────────────────
 const AD_FREQUENCY        = 5;   // songs between ads for free users
@@ -1111,12 +1161,18 @@ function decodeHTMLEntities(str) {
  *   When provided, results are ordered by viewCount; otherwise by relevance.
  */
 async function searchYouTube(query, channelId = '') {
+  // Maintenance mode blocks search for non-admins
+  if (adminState.maintenanceMode && !adminState.isAdminSession) {
+    throw Object.assign(new Error('maintenance'), { code: 'MAINTENANCE' });
+  }
+
   const url = new URL('https://www.googleapis.com/youtube/v3/search');
   url.searchParams.set('part', 'snippet');
   url.searchParams.set('type', 'video');
-  url.searchParams.set('maxResults', '50');
+  url.searchParams.set('maxResults', '25'); // reduced from 50 to save quota
   url.searchParams.set('q', query);
   url.searchParams.set('key', CONFIG.YOUTUBE_API_KEY);
+  url.searchParams.set('videoCategoryId', '10'); // 10 = Music category
   // Order by relevance for searches, viewCount for channel browsing
   if (channelId) {
     url.searchParams.set('channelId', channelId);
@@ -1125,9 +1181,44 @@ async function searchYouTube(query, channelId = '') {
     url.searchParams.set('order', 'relevance');
   }
 
-  const response = await fetch(url.toString());
-  if (!response.ok) throw new Error(`YouTube API error: ${response.status}`);
+  let response;
+  try {
+    response = await fetch(url.toString());
+  } catch (networkErr) {
+    // No internet connection or fetch failed
+    throw Object.assign(new Error('Network error — check your internet connection.'), { code: 'NETWORK' });
+  }
+
+  if (!response.ok) {
+    // Parse the YouTube API error body for a specific reason code
+    let reason = '';
+    try {
+      const errBody = await response.json();
+      reason = errBody?.error?.errors?.[0]?.reason || '';
+      // Log to admin error log
+      adminLog(`YouTube API ${response.status}: ${reason || response.statusText}`);
+    } catch (_) {}
+
+    if (response.status === 403) {
+      if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') {
+        throw Object.assign(new Error('Daily search quota exceeded. Try again tomorrow or contact support.'), { code: 'QUOTA' });
+      }
+      if (reason === 'keyInvalid') {
+        throw Object.assign(new Error('API key invalid. Please contact support.'), { code: 'KEY_INVALID' });
+      }
+      throw Object.assign(new Error('Access denied. Check API key restrictions.'), { code: 'FORBIDDEN' });
+    }
+    if (response.status === 400) {
+      throw Object.assign(new Error('Bad request. Try a different search term.'), { code: 'BAD_REQUEST' });
+    }
+    throw Object.assign(new Error(`YouTube API error ${response.status}. Try again in a moment.`), { code: 'API_ERROR' });
+  }
+
   const data = await response.json();
+  // Track quota usage (each search costs ~100 units)
+  adminState.quotaUsedToday = (adminState.quotaUsedToday || 0) + 100;
+  _saveQuota();
+
   return filterMusicOnly(data.items || []);
 }
 
@@ -1293,8 +1384,33 @@ async function handleSearch(query, channelId = '') {
     state.searchResults = items;
     renderResults(items);
   } catch (err) {
-    console.error('Search failed:', err);
-    grid.innerHTML = `<div class="empty-state"><p>Search failed. Check your API key or network connection.</p></div>`;
+    adminLog('handleSearch error: ' + err.message);
+    const code = err.code || '';
+    let msg = 'Search failed. Please try again.';
+    let action = '';
+    if (code === 'MAINTENANCE') {
+      msg = '🔧 Cipher Music is under maintenance.';
+      action = 'We\'ll be back shortly! Check back soon.';
+    } else if (code === 'QUOTA') {
+      msg = '⚠️ Daily search limit reached.';
+      action = 'We\'ve hit the daily YouTube quota. Try again after midnight (Pacific time).';
+    } else if (code === 'KEY_INVALID') {
+      msg = '⚠️ Service configuration error.';
+      action = 'Please contact support. (API key issue)';
+    } else if (code === 'NETWORK') {
+      msg = '📡 No internet connection.';
+      action = 'Check your Wi-Fi or mobile data and try again.';
+    } else if (code === 'FORBIDDEN') {
+      msg = '⚠️ Search access denied.';
+      action = 'The API key may have domain restrictions. Contact support.';
+    } else {
+      action = err.message || 'An unexpected error occurred.';
+    }
+    grid.innerHTML = `<div class="empty-state search-error-state">
+      <p class="search-error-title">${msg}</p>
+      <p class="search-error-detail">${action}</p>
+      <button class="btn-primary btn-retry-search" onclick="handleSearch()">↺ Retry</button>
+    </div>`;
   }
 }
 
@@ -3068,6 +3184,7 @@ function init() {
   }
 
   bindEvents();
+  initAdminPanel(); // attach admin panel keyboard shortcut
 
   // Hash-based routing: allow direct links to signup/reset
   const hash = window.location.hash.slice(1);
@@ -3082,6 +3199,210 @@ function init() {
   } else {
     showView('login');
   }
+
+  // Show maintenance banner if active for non-admin visitors
+  if (adminState.maintenanceMode && !adminState.isAdminSession) {
+    document.getElementById('maintenance-banner')?.classList.remove('hidden');
+  }
+
+  // Open admin panel if ?debug=1 is in the URL
+  if (new URLSearchParams(window.location.search).get('debug') === '1') {
+    setTimeout(() => {
+      const hasPin = !!localStorage.getItem(ADMIN_PIN_KEY);
+      if (!hasPin) {
+        // First-time setup — show panel directly with setup form
+        const panel = document.getElementById('admin-panel');
+        panel?.classList.add('open');
+        document.getElementById('admin-setup-section')?.classList.remove('hidden');
+        document.getElementById('admin-main-sections')?.classList.add('hidden');
+      } else {
+        openAdminPanel();
+      }
+    }, 500);
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// ═══════════════════════════════════════════════════════════
+// ADMIN / DEBUG PANEL
+// ═══════════════════════════════════════════════════════════
+
+function initAdminPanel() {
+  // Ctrl+Shift+D (desktop) or 5-tap on the version footer (mobile)
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+      e.preventDefault();
+      openAdminPanel();
+    }
+  });
+}
+
+function openAdminPanel() {
+  const panel = document.getElementById('admin-panel');
+  if (!panel) return;
+
+  if (adminState.isAdminSession) {
+    // Already authenticated — toggle
+    panel.classList.toggle('open');
+    if (panel.classList.contains('open')) refreshAdminPanel();
+    return;
+  }
+
+  // Show custom PIN modal (password-masked input, no plain-text prompt())
+  showAdminPinModal();
+}
+
+/** Show the admin PIN entry modal. */
+function showAdminPinModal() {
+  const modal = document.getElementById('admin-pin-modal');
+  if (!modal) return;
+  const input = document.getElementById('admin-pin-input');
+  if (input) { input.value = ''; input.focus(); }
+  modal.classList.remove('hidden');
+}
+
+/** Called by the PIN modal submit button. */
+async function submitAdminPin() {
+  const input = document.getElementById('admin-pin-input');
+  const pin = input?.value || '';
+  document.getElementById('admin-pin-modal')?.classList.add('hidden');
+
+  if (!pin) return;
+
+  const storedHash = localStorage.getItem(ADMIN_PIN_KEY);
+  let expectedHash;
+  if (storedHash) {
+    expectedHash = storedHash;
+  } else {
+    // No PIN has been set yet — the first time the panel is opened, the owner
+    // must set a PIN before they can use the panel.
+    showToast('No admin PIN set. Please set one via ?debug=1 first.', 'error', 5000);
+    return;
+  }
+
+  const enteredHash = await sha256Hex(pin);
+  if (enteredHash !== expectedHash) {
+    showToast('❌ Incorrect admin PIN.', 'error', 3000);
+    return;
+  }
+
+  adminState.isAdminSession = true;
+  const panel = document.getElementById('admin-panel');
+  panel?.classList.add('open');
+  refreshAdminPanel();
+}
+
+function closeAdminPanel() {
+  document.getElementById('admin-panel')?.classList.remove('open');
+}
+
+function refreshAdminPanel() {
+  // API key (masked)
+  const keyEl = document.getElementById('admin-api-key');
+  if (keyEl) {
+    const k = CONFIG.YOUTUBE_API_KEY || '';
+    keyEl.textContent = k ? k.slice(0, 8) + '…' + k.slice(-4) : '(not set)';
+    keyEl.style.color = k.length >= 20 ? '#00d4ff' : '#ff4444';
+  }
+  // Version
+  const verEl = document.getElementById('admin-version');
+  if (verEl) verEl.textContent = APP_VERSION;
+  // Quota
+  const qEl = document.getElementById('admin-quota');
+  if (qEl) qEl.textContent = `~${adminState.quotaUsedToday} / ${YOUTUBE_DAILY_QUOTA} units today`;
+  // Maintenance toggle
+  const mEl = document.getElementById('admin-maint-toggle');
+  if (mEl) mEl.checked = adminState.maintenanceMode;
+  // Log
+  renderAdminLog();
+}
+
+function renderAdminLog() {
+  const logEl = document.getElementById('admin-log');
+  if (!logEl) return;
+  if (_adminLogs.length === 0) {
+    logEl.textContent = 'No errors logged.';
+    return;
+  }
+  logEl.textContent = _adminLogs.slice(0, MAX_DISPLAYED_LOGS)
+    .map(e => `[${e.ts.slice(11, 19)}] ${e.msg}`)
+    .join('\n');
+}
+
+function adminToggleMaintenance() {
+  adminState.maintenanceMode = !adminState.maintenanceMode;
+  localStorage.setItem(MAINT_KEY, adminState.maintenanceMode ? '1' : '0');
+  const banner = document.getElementById('maintenance-banner');
+  if (adminState.maintenanceMode) {
+    banner?.classList.remove('hidden');
+    showToast('🔧 Maintenance mode ON — users see maintenance banner.', 'info', 4000);
+  } else {
+    banner?.classList.add('hidden');
+    showToast('✅ Maintenance mode OFF — app is live.', 'success', 3000);
+  }
+  refreshAdminPanel();
+}
+
+async function adminTestApiKey() {
+  const resultEl = document.getElementById('admin-api-test-result');
+  if (resultEl) resultEl.textContent = 'Testing…';
+  try {
+    const r = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?part=id&type=video&q=test&maxResults=1&key=${CONFIG.YOUTUBE_API_KEY}`
+    );
+    const body = await r.json();
+    if (r.ok) {
+      if (resultEl) { resultEl.textContent = `✅ Key works! (HTTP ${r.status})`; resultEl.style.color = '#00d4ff'; }
+      adminState.quotaUsedToday += 100;
+      _saveQuota(); // persist so quota display stays accurate
+    } else {
+      const reason = body?.error?.errors?.[0]?.reason || r.statusText;
+      if (resultEl) { resultEl.textContent = `❌ ${r.status}: ${reason}`; resultEl.style.color = '#ff4444'; }
+      adminLog(`API key test failed: ${r.status} ${reason}`);
+    }
+    refreshAdminPanel();
+  } catch (e) {
+    if (resultEl) { resultEl.textContent = `❌ Network error: ${e.message}`; resultEl.style.color = '#ff4444'; }
+  }
+}
+
+function adminClearCache() {
+  if (!confirm('Clear app cache and service worker? The page will reload.')) return;
+  caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))).then(() => {
+    navigator.serviceWorker?.getRegistrations().then(regs => {
+      Promise.all(regs.map(r => r.unregister())).then(() => window.location.reload(true));
+    });
+  });
+}
+
+async function adminChangePin() {
+  const newPin = document.getElementById('admin-change-pin-input')?.value?.trim() || '';
+  if (!newPin || newPin.length < 4 || !/^\d+$/.test(newPin)) {
+    showToast('PIN must be at least 4 digits.', 'error'); return;
+  }
+  const hash = await sha256Hex(newPin);
+  localStorage.setItem(ADMIN_PIN_KEY, hash);
+  const inp = document.getElementById('admin-change-pin-input');
+  if (inp) inp.value = '';
+  showToast('✅ Admin PIN updated.', 'success');
+}
+
+/** First-time PIN setup — shown when ?debug=1 and no PIN is set. */
+async function adminSetInitialPin() {
+  const pin = document.getElementById('admin-new-pin-input')?.value?.trim() || '';
+  if (!pin || pin.length < 4 || !/^\d+$/.test(pin)) {
+    showToast('PIN must be at least 4 digits.', 'error'); return;
+  }
+  const hash = await sha256Hex(pin);
+  localStorage.setItem(ADMIN_PIN_KEY, hash);
+  adminState.isAdminSession = true;
+  if (document.getElementById('admin-setup-section')) {
+    document.getElementById('admin-setup-section').classList.add('hidden');
+    document.getElementById('admin-main-sections')?.classList.remove('hidden');
+  }
+  refreshAdminPanel();
+  showToast('✅ Admin PIN set! Panel unlocked.', 'success');
+}
+
+

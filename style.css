@@ -2895,3 +2895,147 @@ body:not(.dark-mode) .liked-sort-select { background: #fff; color: #111133; }
   .modal-actions { flex-direction: column; }
   .modal-actions button { width: 100%; }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   MAINTENANCE BANNER
+   ═══════════════════════════════════════════════════════════ */
+.maintenance-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 99999;
+  background: linear-gradient(90deg, #7c3aed, #9f5cf7);
+  color: #fff;
+  text-align: center;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+}
+.maint-icon { font-size: 1.1rem; }
+
+/* ═══════════════════════════════════════════════════════════
+   ADMIN / DEBUG PANEL
+   ═══════════════════════════════════════════════════════════ */
+.admin-panel {
+  position: fixed;
+  top: 0; right: 0;
+  width: min(380px, 100vw);
+  height: 100vh;
+  background: #0e0e1a;
+  border-left: 1px solid rgba(0, 212, 255, 0.25);
+  box-shadow: -4px 0 24px rgba(0,0,0,0.7);
+  z-index: 99998;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
+  font-size: 0.88rem;
+}
+.admin-panel.open { transform: translateX(0); }
+
+.admin-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+  background: rgba(0, 212, 255, 0.06);
+  flex-shrink: 0;
+}
+.admin-panel-title { font-size: 1rem; font-weight: 700; color: var(--accent, #00d4ff); }
+.admin-close-btn {
+  background: none; border: none; color: var(--text-secondary, #aaa);
+  font-size: 1.1rem; cursor: pointer; padding: 4px 8px; border-radius: 4px;
+}
+.admin-close-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+.admin-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.admin-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.admin-section-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent, #00d4ff);
+  font-weight: 600;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  gap: 8px;
+  color: var(--text-primary, #fff);
+}
+.admin-row span:first-child { color: var(--text-secondary, #aaa); }
+.admin-row code { font-family: monospace; font-size: 0.82rem; word-break: break-all; }
+.admin-hint { font-size: 0.78rem; color: var(--text-secondary, #aaa); margin-top: 4px; line-height: 1.4; }
+
+/* Admin toggle switch */
+.admin-toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+.admin-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+.admin-toggle-track {
+  position: absolute; inset: 0;
+  background: rgba(255,255,255,0.12);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.admin-toggle input:checked + .admin-toggle-track { background: var(--accent, #00d4ff); }
+.admin-toggle-track::after {
+  content: ''; position: absolute;
+  left: 3px; top: 3px;
+  width: 18px; height: 18px;
+  background: #fff; border-radius: 50%;
+  transition: left 0.2s;
+}
+.admin-toggle input:checked + .admin-toggle-track::after { left: 23px; }
+
+/* Error log */
+.admin-log-section {}
+.admin-clear-log-btn {
+  background: rgba(255,255,255,0.08); border: none; color: var(--text-secondary, #aaa);
+  font-size: 0.72rem; cursor: pointer; padding: 2px 8px; border-radius: 4px;
+  margin-left: auto;
+}
+.admin-clear-log-btn:hover { background: rgba(255,68,68,0.2); color: #ff6666; }
+.admin-log-pre {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.72rem;
+  font-family: monospace;
+  color: #c8c8c8;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+}
+
+/* ── Improved search error state ─────────────────────────── */
+.search-error-state {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 24px;
+}
+.search-error-title { font-weight: 700; font-size: 1rem; color: var(--text-primary, #fff); }
+.search-error-detail { font-size: 0.85rem; color: var(--text-secondary, #aaa); text-align: center; max-width: 320px; line-height: 1.5; }
+.btn-retry-search {
+  margin-top: 8px; padding: 8px 24px; font-size: 0.85rem;
+}

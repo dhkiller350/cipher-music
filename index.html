@@ -1249,6 +1249,106 @@
     </div>
   </div>
 
+  <!-- ── Maintenance Banner (shown to non-admin users when maintenance mode is on) ── -->
+  <div id="maintenance-banner" class="maintenance-banner hidden" role="alert">
+    <span class="maint-icon">🔧</span>
+    <span>Cipher Music is currently undergoing maintenance. We'll be back soon!</span>
+    <span class="maint-icon">🔧</span>
+  </div>
+
+  <!-- ── Admin PIN Entry Modal (password-masked, no prompt()) ── -->
+  <div id="admin-pin-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Admin PIN entry">
+    <div class="modal-overlay" onclick="document.getElementById('admin-pin-modal').classList.add('hidden')"></div>
+    <div class="modal-card glass-card" style="max-width:320px;text-align:center">
+      <h3>🔐 Cipher Admin</h3>
+      <p style="font-size:0.85rem;margin-bottom:16px;color:var(--text-secondary)">Enter your admin PIN to continue</p>
+      <div class="form-group" style="text-align:left">
+        <label for="admin-pin-input">PIN</label>
+        <input type="password" id="admin-pin-input" inputmode="numeric" pattern="\d*"
+               placeholder="••••" autocomplete="off" maxlength="20"
+               onkeydown="if(event.key==='Enter')submitAdminPin()" />
+      </div>
+      <button class="btn-primary btn-full" onclick="submitAdminPin()">Unlock</button>
+      <button class="btn-ghost btn-full" style="margin-top:8px"
+              onclick="document.getElementById('admin-pin-modal').classList.add('hidden')">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ── Admin / Debug Panel (Ctrl+Shift+D or ?debug=1) ── -->
+  <div id="admin-panel" class="admin-panel" role="complementary" aria-label="Admin panel">
+    <div class="admin-panel-header">
+      <span class="admin-panel-title">🛠 Cipher Admin</span>
+      <button class="admin-close-btn" onclick="closeAdminPanel()" aria-label="Close admin panel">✕</button>
+    </div>
+    <div class="admin-panel-body">
+
+      <!-- First-time PIN setup (shown only when no PIN is set yet) -->
+      <section id="admin-setup-section" class="admin-section hidden">
+        <h4 class="admin-section-title">⚙️ First-Time Setup</h4>
+        <p class="admin-hint" style="margin-bottom:10px">No admin PIN is set yet. Create a PIN (4+ digits) to secure this panel.</p>
+        <div class="form-group">
+          <label for="admin-new-pin-input">New PIN (digits only, min 4)</label>
+          <input type="password" id="admin-new-pin-input" inputmode="numeric" pattern="\d*"
+                 placeholder="e.g. 1234" maxlength="20" autocomplete="new-password"
+                 onkeydown="if(event.key==='Enter')adminSetInitialPin()" />
+        </div>
+        <button class="btn-primary btn-full" onclick="adminSetInitialPin()">Set PIN &amp; Unlock Panel</button>
+      </section>
+
+      <!-- Main panel sections (hidden until authenticated) -->
+      <div id="admin-main-sections">
+
+        <!-- App Info -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">App Info</h4>
+          <div class="admin-row"><span>Version</span><strong id="admin-version">—</strong></div>
+          <div class="admin-row"><span>API Key</span><code id="admin-api-key">—</code></div>
+          <div class="admin-row"><span>Quota used</span><span id="admin-quota">—</span></div>
+        </section>
+
+        <!-- Maintenance Mode -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">Maintenance Mode</h4>
+          <div class="admin-row">
+            <span>Enable for users</span>
+            <label class="admin-toggle">
+              <input type="checkbox" id="admin-maint-toggle" onchange="adminToggleMaintenance()" />
+              <span class="admin-toggle-track"></span>
+            </label>
+          </div>
+          <p class="admin-hint">When on, users see a maintenance banner. You can still use the full app as admin.</p>
+        </section>
+
+        <!-- API Key Test -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">API Key Test</h4>
+          <button class="btn-primary" style="width:100%;margin-bottom:8px" onclick="adminTestApiKey()">Run Test (costs 100 quota units)</button>
+          <div id="admin-api-test-result" class="admin-hint">—</div>
+        </section>
+
+        <!-- Error Log -->
+        <section class="admin-section admin-log-section">
+          <h4 class="admin-section-title">Error Log <button class="admin-clear-log-btn" onclick="_adminLogs.length=0;renderAdminLog()">Clear</button></h4>
+          <pre id="admin-log" class="admin-log-pre">No errors logged.</pre>
+        </section>
+
+        <!-- Actions -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">Actions</h4>
+          <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminClearCache()">🗑 Clear Cache &amp; Reload</button>
+          <div class="form-group" style="margin-top:8px">
+            <label for="admin-change-pin-input">New PIN (digits only, min 4)</label>
+            <input type="password" id="admin-change-pin-input" inputmode="numeric" pattern="\d*"
+                   placeholder="Enter new PIN" maxlength="20" autocomplete="new-password"
+                   onkeydown="if(event.key==='Enter')adminChangePin()" />
+          </div>
+          <button class="btn-outline btn-full" onclick="adminChangePin()">🔑 Update Admin PIN</button>
+        </section>
+
+      </div><!-- /admin-main-sections -->
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <script src="app.js"></script>
   <!-- YouTube IFrame API -->
