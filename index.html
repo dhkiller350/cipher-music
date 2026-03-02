@@ -46,6 +46,12 @@
           </svg>
           <span>Music</span>
         </li>
+        <li class="nav-item" data-view="liked">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+          </svg>
+          <span>Liked</span>
+        </li>
         <li class="nav-item" data-view="profile">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
@@ -110,8 +116,8 @@
                 </label>
               </div>
               <button type="submit" class="btn-primary btn-full" id="signin-btn">Sign In to Cipher</button>
-              <p class="auth-footer"><a href="#" id="forgot-link">Forgot password?</a> &nbsp;·&nbsp; <a href="reset-password.html">Reset via page</a></p>
-              <p class="auth-footer">Don't have an account? <a href="#" id="signup-link">Sign Up</a> &nbsp;·&nbsp; <a href="signup.html">Signup page</a></p>
+              <p class="auth-footer"><a href="#" id="forgot-link">Forgot password?</a></p>
+              <p class="auth-footer">Don't have an account? <a href="#" id="signup-link">Sign Up</a></p>
             </form>
           </div>
         </div>
@@ -189,9 +195,11 @@
               <p id="verify-email-display" class="verify-email-addr"></p>
             </div>
 
-            <!-- Demo hint (shown when EmailJS is not configured) -->
-            <div id="demo-code-hint" class="demo-hint hidden">
-              <span>🔑 Demo code: <strong id="demo-code-value"></strong></span>
+            <!-- Verification code display (always shown) -->
+            <div id="demo-code-hint" class="verify-code-display hidden">
+              <p class="verify-code-label">Your verification code</p>
+              <p id="demo-code-value" class="verify-code-number"></p>
+              <p class="verify-code-note">Enter this code in the boxes below</p>
             </div>
 
             <div class="otp-wrap">
@@ -323,11 +331,25 @@
           <!-- Genre chips / Recommended Categories -->
           <div class="genre-chips" id="genre-chips">
             <button class="genre-chip active" data-query="trending music 2025">🔥 Trending</button>
-            <button class="genre-chip" data-query="hip hop hits 2025">🎤 Hip-Hop</button>
+            <button class="genre-chip" data-query="new music releases 2025">🆕 New Releases</button>
+            <button class="genre-chip" data-query="hip hop rap hits 2025">🎤 Hip-Hop</button>
             <button class="genre-chip" data-query="pop music hits 2025">🎵 Pop</button>
-            <button class="genre-chip" data-query="r&amp;b music 2025">🎸 R&amp;B</button>
-            <button class="genre-chip" data-query="electronic music 2025">⚡ Electronic</button>
-            <button class="genre-chip" data-query="latin music 2025">💃 Latin</button>
+            <button class="genre-chip" data-query="r&amp;b soul music 2025">🎸 R&amp;B</button>
+            <button class="genre-chip" data-query="rock music hits">🎸 Rock</button>
+            <button class="genre-chip" data-query="electronic dance music EDM 2025">⚡ Electronic</button>
+            <button class="genre-chip" data-query="country music hits 2025">🤠 Country</button>
+            <button class="genre-chip" data-query="latin music reggaeton 2025">💃 Latin</button>
+            <button class="genre-chip" data-query="k-pop kpop hits 2025">🌸 K-Pop</button>
+            <button class="genre-chip" data-query="afrobeats afro music 2025">🌍 Afrobeats</button>
+            <button class="genre-chip" data-query="reggae dancehall music">🎺 Reggae</button>
+            <button class="genre-chip" data-query="jazz music playlist">🎷 Jazz</button>
+            <button class="genre-chip" data-query="classical music orchestra">🎻 Classical</button>
+            <button class="genre-chip" data-query="metal rock heavy music">🤘 Metal</button>
+            <button class="genre-chip" data-query="indie alternative music 2025">🎼 Indie</button>
+            <button class="genre-chip" data-query="gospel praise worship music">🎶 Gospel</button>
+            <button class="genre-chip" data-query="blues music songs">🎵 Blues</button>
+            <button class="genre-chip" data-query="workout gym motivation music 2025">💪 Workout</button>
+            <button class="genre-chip" data-query="lo-fi chill study music">☁️ Lo-Fi</button>
           </div>
           <div id="search-results" class="results-grid"></div>
           <div id="no-results" class="empty-state hidden">
@@ -380,6 +402,33 @@
         <div id="yt-player-container">
         <!-- YouTube IFrame is used as a background audio source -->
         <div id="yt-player"></div>
+        </div>
+      </section>
+
+      <!-- ─── LIKED SONGS VIEW ─── -->
+      <section id="view-liked" class="view">
+        <div class="view-content">
+          <div class="liked-header">
+            <div class="liked-title-wrap">
+              <div class="liked-icon-bg">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 class="section-title" style="margin-bottom:2px">Liked Songs</h2>
+                <p id="liked-count-label" class="section-subtitle" style="margin-bottom:0">0 songs</p>
+              </div>
+            </div>
+            <button id="btn-play-liked" class="btn-primary liked-play-all hidden">▶ Play All</button>
+          </div>
+          <div id="liked-grid" class="results-grid"></div>
+          <div id="liked-empty" class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="64" height="64">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+            </svg>
+            <p>No liked songs yet. Hit ♥ on any song to save it here.</p>
+          </div>
         </div>
       </section>
 

@@ -167,14 +167,13 @@ function isEmailJSConfigured() {
 }
 
 async function sendVerificationEmail(toEmail, toName, code) {
-  if (!isEmailJSConfigured()) {
-    // Show demo hint instead of sending
-    const hint = $('#demo-code-hint');
-    const val  = $('#demo-code-value');
-    if (hint) hint.classList.remove('hidden');
-    if (val)  val.textContent = code;
-    return;
-  }
+  // Always show the code on screen so testers can use it directly
+  const hint = $('#demo-code-hint');
+  const val  = $('#demo-code-value');
+  if (hint) hint.classList.remove('hidden');
+  if (val)  val.textContent = code;
+
+  if (!isEmailJSConfigured()) return;
 
   try {
     if (typeof emailjs === 'undefined') throw new Error('EmailJS not loaded');
@@ -184,15 +183,9 @@ async function sendVerificationEmail(toEmail, toName, code) {
       to_name:           toName,
       verification_code: code
     });
-    showToast('Verification code sent to ' + toEmail, 'success');
+    showToast('Verification code also sent to ' + toEmail, 'success');
   } catch (err) {
-    console.warn('EmailJS failed:', err);
-    // Fallback to demo hint
-    const hint = $('#demo-code-hint');
-    const val  = $('#demo-code-value');
-    if (hint) hint.classList.remove('hidden');
-    if (val)  val.textContent = code;
-    showToast('Email sending failed — demo code shown on screen', 'info');
+    console.warn('EmailJS send failed:', err);
   }
 }
 
@@ -491,6 +484,7 @@ function showView(viewName) {
   }
 
   if (viewName === 'profile') populateProfile();
+  if (viewName === 'liked') populateLiked();
   if (viewName === 'player' && !state.featuredLoaded) loadFeaturedMusic();
 }
 
@@ -621,6 +615,108 @@ function highlightCard(index) {
   $$('.result-card').forEach((c, i) => c.classList.toggle('playing', i === index));
 }
 
+// ═══════════════════════════════════════════════════════════
+// LIKED SONGS
+// ═══════════════════════════════════════════════════════════
+function getLiked() {
+  try { return JSON.parse(localStorage.getItem('cipher_liked') || '[]'); } catch { return []; }
+}
+
+function getLikedIds() {
+  return new Set(getLiked().map(s => s.videoId));
+}
+
+function saveLiked(list) {
+  localStorage.setItem('cipher_liked', JSON.stringify(list));
+}
+
+function toggleLike(btn) {
+  const videoId = btn.dataset.videoid;
+  const title   = btn.dataset.title;
+  const channel = btn.dataset.channel;
+  const thumb   = btn.dataset.thumb;
+  if (!videoId) return;
+
+  let liked = getLiked();
+  const idx = liked.findIndex(s => s.videoId === videoId);
+  if (idx === -1) {
+    liked.push({ videoId, title, channel, thumb });
+    btn.classList.add('liked');
+    btn.querySelector('svg')?.setAttribute('fill', 'currentColor');
+    btn.setAttribute('aria-label', 'Unlike ' + title);
+    showToast('Added to Liked Songs ♥', 'success');
+  } else {
+    liked.splice(idx, 1);
+    btn.classList.remove('liked');
+    btn.querySelector('svg')?.setAttribute('fill', 'none');
+    btn.setAttribute('aria-label', 'Like ' + title);
+    showToast('Removed from Liked Songs', 'info');
+  }
+  saveLiked(liked);
+
+  // Refresh liked view if open
+  if (state.currentView === 'liked') populateLiked();
+}
+
+function populateLiked() {
+  const liked   = getLiked();
+  const grid    = $('#liked-grid');
+  const empty   = $('#liked-empty');
+  const label   = $('#liked-count-label');
+  const playBtn = $('#btn-play-liked');
+
+  if (label) label.textContent = `${liked.length} song${liked.length !== 1 ? 's' : ''}`;
+  if (playBtn) playBtn.classList.toggle('hidden', liked.length === 0);
+
+  if (!liked.length) {
+    if (grid) grid.innerHTML = '';
+    empty?.classList.remove('hidden');
+    return;
+  }
+
+  empty?.classList.add('hidden');
+
+  // Build fake "items" compatible with renderResults
+  const items = liked.map(s => ({
+    id: { videoId: s.videoId },
+    videoId: s.videoId,
+    snippet: {
+      title: s.title,
+      channelTitle: s.channel,
+      thumbnails: { medium: { url: s.thumb } }
+    }
+  }));
+
+  // Store liked items as search results so playVideo works
+  state.searchResults = items;
+
+  grid.innerHTML = items.map((item, idx) => {
+    const thumb   = item.snippet?.thumbnails?.medium?.url || '';
+    const title   = decodeHTMLEntities(item.snippet?.title || '');
+    const channel = item.snippet?.channelTitle || '';
+    const videoId = item.id?.videoId || '';
+    return `
+      <div class="result-card" data-index="${idx}" data-videoid="${escapeAttr(videoId)}" role="article">
+        <img class="result-thumb" src="${thumb}" alt="${escapeAttr(title)}" loading="lazy" />
+        <div class="result-info">
+          <p class="result-title" title="${escapeAttr(title)}">${title}</p>
+          <p class="result-channel">${escapeHTML(channel)}</p>
+          <div class="card-actions">
+            <button class="btn-primary result-play-btn" data-index="${idx}" aria-label="Play ${escapeAttr(title)}">▶ Play</button>
+            <button class="btn-like liked" data-videoid="${escapeAttr(videoId)}" data-title="${escapeAttr(title)}" data-channel="${escapeAttr(channel)}" data-thumb="${escapeAttr(thumb)}" aria-label="Unlike ${escapeAttr(title)}">
+              <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  bindCardEvents(grid);
+}
+
 function playNext() {
   const next = state.currentIndex + 1;
   if (next < state.searchResults.length) playVideo(next);
@@ -649,7 +745,7 @@ async function searchYouTube(query) {
   url.searchParams.set('part', 'snippet');
   url.searchParams.set('type', 'video');
   url.searchParams.set('videoCategoryId', '10');
-  url.searchParams.set('maxResults', '16');
+  url.searchParams.set('maxResults', '30');
   url.searchParams.set('q', query);
   url.searchParams.set('key', CONFIG.YOUTUBE_API_KEY);
 
@@ -659,47 +755,72 @@ async function searchYouTube(query) {
   return data.items || [];
 }
 
-function renderResults(items) {
-  const grid        = $('#search-results');
-  const noRes       = $('#no-results');
-  const placeholder = $('#search-placeholder');
-
-  if (placeholder) placeholder.classList.add('hidden');
-
-  if (!items.length) {
-    grid.innerHTML = '';
-    noRes?.classList.remove('hidden');
-    return;
-  }
-
-  noRes?.classList.add('hidden');
-
-  grid.innerHTML = items.map((item, idx) => {
-    const thumb   = item.snippet?.thumbnails?.medium?.url || '';
-    const title   = decodeHTMLEntities(item.snippet?.title || '');
-    const channel = item.snippet?.channelTitle || '';
-    return `
-      <div class="result-card" data-index="${idx}" role="article">
-        <img class="result-thumb" src="${thumb}" alt="${escapeAttr(title)}" loading="lazy" />
-        <div class="result-info">
-          <p class="result-title" title="${escapeAttr(title)}">${title}</p>
-          <p class="result-channel">${escapeHTML(channel)}</p>
-          <button class="btn-primary result-play-btn" data-index="${idx}" aria-label="Play ${escapeAttr(title)}">▶ Play</button>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  $$('.result-play-btn').forEach(btn => {
+function bindCardEvents(container) {
+  container.querySelectorAll('.result-play-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       playVideo(parseInt(btn.dataset.index, 10));
     });
   });
 
-  $$('.result-card').forEach(card => {
-    card.addEventListener('click', () => playVideo(parseInt(card.dataset.index, 10)));
+  container.querySelectorAll('.result-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.btn-like')) return;
+      playVideo(parseInt(card.dataset.index, 10));
+    });
   });
+
+  container.querySelectorAll('.btn-like').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleLike(btn);
+    });
+  });
+}
+
+function renderResults(items, gridId = 'search-results') {
+  const grid        = $(`#${gridId}`);
+  const noRes       = $('#no-results');
+  const placeholder = $('#search-placeholder');
+
+  if (placeholder) placeholder.classList.add('hidden');
+
+  if (!items.length) {
+    if (grid) grid.innerHTML = '';
+    noRes?.classList.remove('hidden');
+    return;
+  }
+
+  noRes?.classList.add('hidden');
+
+  const liked = getLikedIds();
+
+  grid.innerHTML = items.map((item, idx) => {
+    const thumb   = item.snippet?.thumbnails?.medium?.url || '';
+    const title   = decodeHTMLEntities(item.snippet?.title || '');
+    const channel = item.snippet?.channelTitle || '';
+    const videoId = item.id?.videoId || item.videoId || '';
+    const isLiked = liked.has(videoId);
+    return `
+      <div class="result-card" data-index="${idx}" data-videoid="${escapeAttr(videoId)}" role="article">
+        <img class="result-thumb" src="${thumb}" alt="${escapeAttr(title)}" loading="lazy" />
+        <div class="result-info">
+          <p class="result-title" title="${escapeAttr(title)}">${title}</p>
+          <p class="result-channel">${escapeHTML(channel)}</p>
+          <div class="card-actions">
+            <button class="btn-primary result-play-btn" data-index="${idx}" aria-label="Play ${escapeAttr(title)}">▶ Play</button>
+            <button class="btn-like${isLiked ? ' liked' : ''}" data-videoid="${escapeAttr(videoId)}" data-title="${escapeAttr(title)}" data-channel="${escapeAttr(channel)}" data-thumb="${escapeAttr(thumb)}" aria-label="${isLiked ? 'Unlike' : 'Like'} ${escapeAttr(title)}">
+              <svg viewBox="0 0 24 24" fill="${isLiked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  bindCardEvents(grid);
 }
 
 function escapeHTML(str) {
@@ -777,14 +898,27 @@ function updateProfileStats() {
   if (songsEl) songsEl.textContent = state.songsPlayed;
   if (hoursEl) hoursEl.textContent = Math.round(state.minutesListened / 60 * 10) / 10;
   if (genreEl) {
-    // Derive from active chip label
     const chipMap = {
       'trending music 2025': 'Trending',
-      'hip hop hits 2025': 'Hip-Hop',
+      'new music releases 2025': 'New Releases',
+      'hip hop rap hits 2025': 'Hip-Hop',
       'pop music hits 2025': 'Pop',
-      'r&b music 2025': 'R&B',
-      'electronic music 2025': 'Electronic',
-      'latin music 2025': 'Latin'
+      'r&b soul music 2025': 'R&B',
+      'rock music hits': 'Rock',
+      'electronic dance music EDM 2025': 'Electronic',
+      'country music hits 2025': 'Country',
+      'latin music reggaeton 2025': 'Latin',
+      'k-pop kpop hits 2025': 'K-Pop',
+      'afrobeats afro music 2025': 'Afrobeats',
+      'reggae dancehall music': 'Reggae',
+      'jazz music playlist': 'Jazz',
+      'classical music orchestra': 'Classical',
+      'metal rock heavy music': 'Metal',
+      'indie alternative music 2025': 'Indie',
+      'gospel praise worship music': 'Gospel',
+      'blues music songs': 'Blues',
+      'workout gym motivation music 2025': 'Workout',
+      'lo-fi chill study music': 'Lo-Fi'
     };
     genreEl.textContent = chipMap[state.activeChip] || 'Music';
   }
@@ -1150,6 +1284,24 @@ function bindEvents() {
       state.activeChip = chip.dataset.query;
       handleSearch(chip.dataset.query);
     });
+  });
+
+  // ── Liked Songs: Play All ──
+  $('#btn-play-liked')?.addEventListener('click', () => {
+    const liked = getLiked();
+    if (!liked.length) return;
+    const items = liked.map(s => ({
+      id: { videoId: s.videoId },
+      videoId: s.videoId,
+      snippet: {
+        title: s.title,
+        channelTitle: s.channel,
+        thumbnails: { medium: { url: s.thumb } }
+      }
+    }));
+    state.searchResults = items;
+    playVideo(0);
+    showView('player');
   });
 
   // ── Search ──

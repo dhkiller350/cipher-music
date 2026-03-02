@@ -64,8 +64,10 @@
           <p id="verify-email-display" class="verify-email-addr"></p>
         </div>
 
-        <div id="demo-code-hint" class="demo-hint hidden">
-          <span>🔑 Demo code: <strong id="demo-code-value"></strong></span>
+        <div id="demo-code-hint" class="verify-code-display hidden">
+          <p class="verify-code-label">Your verification code</p>
+          <p id="demo-code-value" class="verify-code-number"></p>
+          <p class="verify-code-note">Enter this code in the boxes below</p>
         </div>
 
         <div class="otp-wrap">
@@ -184,26 +186,23 @@
     }
 
     async function sendVerificationEmail(toEmail, toName, code) {
+      // Always show the code on screen for easy access
+      $('#demo-code-hint')?.classList.remove('hidden');
+      const v = $('#demo-code-value');
+      if (v) v.textContent = code;
+
       const isConfigured = CONFIG_SU.EMAILJS_SERVICE_ID !== 'YOUR_SERVICE_ID' &&
                            CONFIG_SU.EMAILJS_PUBLIC_KEY  !== 'YOUR_PUBLIC_KEY';
-      if (!isConfigured) {
-        $('#demo-code-hint')?.classList.remove('hidden');
-        const v = $('#demo-code-value');
-        if (v) v.textContent = code;
-        return;
-      }
+      if (!isConfigured) return;
       try {
         if (typeof emailjs === 'undefined') throw new Error('EmailJS not loaded');
         emailjs.init(CONFIG_SU.EMAILJS_PUBLIC_KEY);
         await emailjs.send(CONFIG_SU.EMAILJS_SERVICE_ID, CONFIG_SU.EMAILJS_TEMPLATE_ID, {
           to_email: toEmail, to_name: toName, verification_code: code
         });
-        showToast('Verification code sent to ' + toEmail, 'success');
+        showToast('Verification code also sent to ' + toEmail, 'success');
       } catch {
-        $('#demo-code-hint')?.classList.remove('hidden');
-        const v = $('#demo-code-value');
-        if (v) v.textContent = code;
-        showToast('Email sending failed — demo code shown on screen', 'info');
+        // Code already shown on screen, nothing more to do
       }
     }
 
