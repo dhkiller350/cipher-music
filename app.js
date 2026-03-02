@@ -94,6 +94,69 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+// ── iOS Background Audio Keep-Alive ──────────────────────
+// On iOS (Safari/PWA) the audio session is suspended when the screen locks
+// or when the user switches apps.  Playing a near-silent 1 Hz tone via the
+// Web Audio API maintains the audio session so the YouTube iframe keeps
+// playing in the background.
+let _bgAudioCtx    = null;
+let _bgGainNode    = null;
+let _bgOscillator  = null;
+
+function startBgAudioKeepAlive() {
+  // Already running
+  if (_bgAudioCtx && _bgAudioCtx.state === 'running') return;
+
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return; // not supported
+
+    if (!_bgAudioCtx) {
+      _bgAudioCtx = new AudioContext();
+      // Near-silent gain (not zero — zero can be optimized away)
+      _bgGainNode = _bgAudioCtx.createGain();
+      _bgGainNode.gain.value = 0.001;
+      _bgGainNode.connect(_bgAudioCtx.destination);
+    }
+
+    // Resume if suspended (common after a background/foreground cycle)
+    if (_bgAudioCtx.state === 'suspended') {
+      _bgAudioCtx.resume().catch(err => console.debug('[BgAudio] resume failed:', err));
+    }
+
+    // Create (or re-create) a looping 1 Hz sub-audible oscillator
+    if (_bgOscillator) {
+      try { _bgOscillator.stop(); } catch (_) {}
+    }
+    _bgOscillator = _bgAudioCtx.createOscillator();
+    _bgOscillator.frequency.value = 1;  // 1 Hz sub-audible (inaudible at 0.001 gain)
+    _bgOscillator.connect(_bgGainNode);
+    _bgOscillator.start();
+  } catch (err) {
+    console.debug('[BgAudio] startBgAudioKeepAlive failed:', err);
+  }
+}
+
+function stopBgAudioKeepAlive() {
+  if (_bgOscillator) {
+    try { _bgOscillator.stop(); } catch (_) {}
+    _bgOscillator = null;
+  }
+  if (_bgAudioCtx) {
+    try { _bgAudioCtx.suspend(); } catch (err) {
+      console.debug('[BgAudio] suspend failed:', err);
+    }
+  }
+}
+
+// Re-start keep-alive when tab becomes visible (handles foreground resume on iOS)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.isPlaying) {
+    requestWakeLock();
+    startBgAudioKeepAlive();
+  }
+});
+
 // ── Media Session API ─────────────────────────────────────
 // Shows Now Playing info on the OS lock screen and enables
 // hardware media keys (headphones, lock-screen controls).
@@ -594,6 +657,7 @@ function onPlayerStateChange(event) {
   if (playing) {
     startListeningTimer();
     requestWakeLock();
+    startBgAudioKeepAlive(); // keep iOS audio session alive in background
     // Update media session playback state
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'playing';
@@ -602,6 +666,7 @@ function onPlayerStateChange(event) {
     stopListeningTimer();
     if (event.data === YT.PlayerState.PAUSED) {
       releaseWakeLock();
+      stopBgAudioKeepAlive();
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'paused';
       }
@@ -655,6 +720,10 @@ function playVideo(index) {
 
   state.ytPlayer.loadVideoById(videoId);
   state.isPlaying = true;
+
+  // Start background audio keep-alive here (on the user gesture) so iOS
+  // allows the AudioContext to be created/resumed
+  startBgAudioKeepAlive();
 
   updateNowPlaying(item);
   updateNowPlayingPanel(item);
@@ -930,7 +999,7 @@ async function searchYouTube(query, channelId = '') {
   url.searchParams.set('part', 'snippet');
   url.searchParams.set('type', 'video');
   // Removed videoCategoryId restriction so ALL video types are returned
-  url.searchParams.set('maxResults', '30');
+  url.searchParams.set('maxResults', '50');
   url.searchParams.set('q', query);
   url.searchParams.set('key', CONFIG.YOUTUBE_API_KEY);
   // Order by relevance for searches, viewCount for channel browsing
