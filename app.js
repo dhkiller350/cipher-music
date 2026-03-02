@@ -1343,10 +1343,12 @@ window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   state.deferredInstallPrompt = e;
 
-  // Show the floating install banner and push player bar up
-  const banner = $('#pwa-install-banner');
-  if (banner) banner.classList.remove('hidden');
-  document.body.classList.add('pwa-banner-visible');
+  // Show the floating install banner (unless previously dismissed this session)
+  if (!sessionStorage.getItem('pwa-banner-dismissed')) {
+    const banner = $('#pwa-install-banner');
+    if (banner) banner.classList.remove('hidden');
+    document.body.classList.add('pwa-banner-visible');
+  }
 
   // Show the dedicated install row in Settings
   const promptRow = $('#install-prompt-row');
@@ -1365,11 +1367,13 @@ function triggerInstallPrompt() {
   if (state.deferredInstallPrompt) {
     state.deferredInstallPrompt.prompt();
     state.deferredInstallPrompt.userChoice.then((choice) => {
-      if (choice.outcome === 'accepted') {
-        $('#pwa-install-banner')?.classList.add('hidden');
-        document.body.classList.remove('pwa-banner-visible');
-      }
       state.deferredInstallPrompt = null;
+      const banner = $('#pwa-install-banner');
+      if (banner) banner.classList.add('hidden');
+      document.body.classList.remove('pwa-banner-visible');
+      if (choice.outcome === 'accepted') {
+        showToast('Cipher Music installed! 🎉', 'success');
+      }
     });
   } else {
     showToast(INSTALL_INSTRUCTIONS, 'info', 7000);
@@ -1802,6 +1806,14 @@ function bindEvents() {
   $('#btn-pwa-install')?.addEventListener('click', () => triggerInstallPrompt());
   $('#btn-pwa-dismiss')?.addEventListener('click', () => {
     $('#pwa-install-banner')?.classList.add('hidden');
+  });
+
+  // ── PWA install banner ──
+  $('#btn-pwa-install')?.addEventListener('click', handleInstallApp);
+  $('#btn-pwa-dismiss')?.addEventListener('click', () => {
+    const banner = $('#pwa-install-banner');
+    if (banner) banner.classList.add('hidden');
+    sessionStorage.setItem('pwa-banner-dismissed', '1');
   });
 
   // ── Hamburger sidebar toggle ──
