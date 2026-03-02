@@ -5,10 +5,9 @@
 // ── Configuration ─────────────────────────────────────────
 const CONFIG = {
   YOUTUBE_API_KEY:     "AIzaSyAxMywGGrwQ2FoXClwrOn6LmuWPuYGCKBY",
-  // EmailJS credentials — replace with your own from https://emailjs.com
-  EMAILJS_SERVICE_ID:  "YOUR_SERVICE_ID",
-  EMAILJS_TEMPLATE_ID: "YOUR_TEMPLATE_ID",
-  EMAILJS_PUBLIC_KEY:  "YOUR_PUBLIC_KEY"
+  EMAILJS_SERVICE_ID:  "service_p32tpor",
+  EMAILJS_TEMPLATE_ID: "template_vjpbh3p",
+  EMAILJS_PUBLIC_KEY:  "IJSM7Zp-wxJkkxVN7"
 };
 
 // ── State ──────────────────────────────────────────────────
