@@ -1868,6 +1868,36 @@ body:not(.dark-mode) .settings-group select option {
 }
 #yt-player-container:not(.yt-hidden) { pointer-events: auto; }
 #yt-player-container:not(.yt-hidden) #yt-player { width: 320px !important; height: 180px !important; }
+
+/* ── Hide YouTube branding / logo overlay ─────────────────────
+   A thin strip blocks the top-left YouTube watermark and the
+   bottom "watch on YouTube" text that appears in modestbranding
+   iframes. The iframe itself is still fully interactive under
+   the strip because only the logo corners are covered.          */
+#yt-player-container:not(.yt-hidden)::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 36px;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);
+  pointer-events: none;
+  z-index: 5;
+}
+#yt-player-container:not(.yt-hidden)::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 20px;
+  background: #000;
+  pointer-events: none;
+  z-index: 5;
+}
+/* Round the iframe corners to match the container */
+#yt-player-container iframe {
+  border-radius: var(--radius);
+  display: block;
+}
+
 .btn-close-video {
   position: absolute;
   top: 6px;

@@ -1,0 +1,15 @@
+# Cipher Admin — Security
+# Only allow access to index.php and notify.php.
+# Blocks direct access to .htaccess, README.md, and the data/ folder.
+
+# Works without mod_rewrite — compatible with all Apache configs
+<FilesMatch "^(?!(index|notify)\.php$).+$">
+  Order deny,allow
+  Deny from all
+</FilesMatch>
+
+# Also protect hidden files (like .htaccess itself)
+<Files ".*">
+  Order deny,allow
+  Deny from all
+</Files>

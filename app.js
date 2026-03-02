@@ -7,10 +7,15 @@ const CONFIG = {
   YOUTUBE_API_KEY:     "AIzaSyAxMywGGrwQ2FoXClwrOn6LmuWPuYGCKBY",
   EMAILJS_SERVICE_ID:  "service_p32tpor",
   EMAILJS_TEMPLATE_ID: "template_vjpbh3p",
-  EMAILJS_PUBLIC_KEY:  "IJSM7Zp-wxJkkxVN7"
+  EMAILJS_PUBLIC_KEY:  "IJSM7Zp-wxJkkxVN7",
+  // Admin contact email — receives payment notifications
+  ADMIN_EMAIL:         'demosn505@gmail.com',
+  // Admin payment server URL — set to your PHP host once deployed.
+  // Leave empty ('') to disable the server-side notification.
+  ADMIN_NOTIFY_URL:    ''
 };
 
-const APP_VERSION = '2.8'; // bump to show changelog on next load
+const APP_VERSION = '2.9'; // bump to show changelog on next load
 
 // ── API key presence check (no network call — save quota) ──
 if (!CONFIG.YOUTUBE_API_KEY || CONFIG.YOUTUBE_API_KEY.length < 20) {
@@ -789,12 +794,16 @@ window.onYouTubeIframeAPIReady = function () {
     height: '180',
     width: '320',
     playerVars: {
-      autoplay:      0,
-      controls:      1,       // show controls (needed for iOS background)
-      playsinline:   1,       // prevent iOS from going fullscreen automatically
-      rel:           0,       // no related videos at end
-      modestbranding: 1,      // minimal YouTube branding
-      fs:            1        // allow fullscreen button
+      autoplay:         0,
+      controls:         1,  // show controls (needed for iOS background audio)
+      playsinline:      1,  // prevent iOS from going fullscreen automatically
+      rel:              0,  // no related videos at end
+      modestbranding:   1,  // minimal YouTube branding
+      fs:               1,  // allow fullscreen button
+      iv_load_policy:   3,  // hide video annotations
+      disablekb:        0,  // allow keyboard shortcuts
+      cc_load_policy:   0,  // don't show captions by default
+      hl:               'en'
     },
     events: { onStateChange: onPlayerStateChange }
   });
@@ -1641,11 +1650,9 @@ function selectPlan(plan) {
   state.paymentRef = ref;
   const refDisplay = $('#pay-ref-code');
   if (refDisplay) refDisplay.textContent = ref;
-  // Pre-fill the payment hint text with the unique reference
+  // Pre-fill the CashApp hint text with the unique reference
   const cashAppNoteHint = $('#pay-cashapp-note-hint');
   if (cashAppNoteHint) cashAppNoteHint.textContent = `Include "${ref}" in your CashApp note`;
-  const bankRefHint = $('#pay-bank-ref-hint');
-  if (bankRefHint) bankRefHint.textContent = `Include "${ref}" in the transfer reference/memo`;
 
   success?.classList.add('hidden');
   activationSection?.classList.add('hidden');
@@ -2039,12 +2046,16 @@ function handlePayment(e) {
 
   const plan  = state.selectedPlan || 'pro';
   const email = $('#pay-email')?.value.trim() || '';
+  const name  = $('#pay-name')?.value.trim() || '';
   const ref   = state.paymentRef || generatePaymentRef();
 
   // Store the pending payment — plan is NOT activated yet
-  const pending = { plan, email, ref, ts: Date.now() };
+  const pending = { plan, email, name, ref, ts: Date.now() };
   localStorage.setItem('cipher_pending_payment', JSON.stringify(pending));
   savePlan('pending');
+
+  // Notify admin by email (best-effort — failure does not block the user)
+  sendAdminPaymentNotification(pending).catch(() => {});
 
   // Show the activation-code entry form (hide the send-payment form)
   $('#payment-form')?.classList.add('hidden');
@@ -2053,6 +2064,47 @@ function handlePayment(e) {
   if (dispRef) dispRef.textContent = ref;
   showToast('Payment submitted! Enter your activation code to unlock your plan.', 'info', 5000);
 }
+
+/**
+ * Send a payment-pending notification to the admin email (demosn505@gmail.com).
+ * Uses the existing EmailJS integration; the template needs an admin_email variable.
+ */
+async function sendAdminPaymentNotification(pending) {
+  // 1. Notify via PHP server (if configured)
+  if (CONFIG.ADMIN_NOTIFY_URL) {
+    try {
+      await fetch(CONFIG.ADMIN_NOTIFY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pending)
+      });
+    } catch (err) {
+      console.warn('[Cipher] PHP server notification failed:', err.message);
+    }
+  }
+
+  // 2. Send email notification to admin via EmailJS (best-effort)
+  if (!isEmailJSConfigured()) return;
+  try {
+    if (typeof emailjs === 'undefined') throw new Error('EmailJS not loaded');
+    emailjs.init(CONFIG.EMAILJS_PUBLIC_KEY);
+    const planNames = { pro: 'Pro Pack ($9.99/mo)', premium: 'Premium ($19.99/mo)' };
+    await emailjs.send(CONFIG.EMAILJS_SERVICE_ID, CONFIG.EMAILJS_TEMPLATE_ID, {
+      to_email:          CONFIG.ADMIN_EMAIL,
+      to_name:           'Cipher Admin',
+      admin_email:       CONFIG.ADMIN_EMAIL,
+      customer_name:     pending.name || '(not provided)',
+      customer_email:    pending.email,
+      payment_plan:      planNames[pending.plan] || pending.plan,
+      payment_ref:       pending.ref,
+      activation_code:   generateActivationCode(pending.plan, pending.email, pending.ref),
+      payment_time:      new Date(pending.ts).toLocaleString()
+    });
+  } catch (err) {
+    console.warn('[Cipher] Admin payment email notification failed:', err.message);
+  }
+}
+
 
 /** Called when the user enters their activation code from the owner. */
 function handleActivationCode() {
