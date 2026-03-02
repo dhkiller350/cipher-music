@@ -87,10 +87,27 @@ async function releaseWakeLock() {
   }
 }
 
-// Re-acquire wake lock when tab becomes visible again
+// ── Visibility / background tracking ─────────────────────
+// Tracks whether music was actively playing when the screen was locked or
+// the user switched apps.  Used to resume after iOS force-pauses the player.
+let _wasPlayingWhenHidden = false;
+
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state.isPlaying) {
+  if (document.visibilityState === 'hidden') {
+    // Record playback state NOW, before iOS has a chance to trigger PAUSED
+    _wasPlayingWhenHidden = state.isPlaying;
+  } else {
+    // Coming back to foreground (screen unlocked / app switched back)
     requestWakeLock();
+    if (_wasPlayingWhenHidden) {
+      _wasPlayingWhenHidden = false; // reset so we don't re-resume on next cycle
+      startBgAudioKeepAlive();
+      // iOS may have force-paused the YouTube player while we were hidden.
+      // If so, resume it automatically.
+      if (!state.isPlaying && state.ytPlayer && state.ytReady) {
+        state.ytPlayer.playVideo();
+      }
+    }
   }
 });
 
@@ -104,9 +121,6 @@ let _bgGainNode    = null;
 let _bgOscillator  = null;
 
 function startBgAudioKeepAlive() {
-  // Already running
-  if (_bgAudioCtx && _bgAudioCtx.state === 'running') return;
-
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) return; // not supported
@@ -119,12 +133,13 @@ function startBgAudioKeepAlive() {
       _bgGainNode.connect(_bgAudioCtx.destination);
     }
 
-    // Resume if suspended (common after a background/foreground cycle)
+    // Resume if suspended (common after a background/foreground cycle on iOS)
     if (_bgAudioCtx.state === 'suspended') {
       _bgAudioCtx.resume().catch(err => console.debug('[BgAudio] resume failed:', err));
     }
 
-    // Create (or re-create) a looping 1 Hz sub-audible oscillator
+    // Always (re-)create the oscillator — it may have been stopped/cleaned up
+    // by the browser during a background→foreground cycle
     if (_bgOscillator) {
       try { _bgOscillator.stop(); } catch (_) {}
     }
@@ -148,14 +163,6 @@ function stopBgAudioKeepAlive() {
     }
   }
 }
-
-// Re-start keep-alive when tab becomes visible (handles foreground resume on iOS)
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state.isPlaying) {
-    requestWakeLock();
-    startBgAudioKeepAlive();
-  }
-});
 
 // ── Media Session API ─────────────────────────────────────
 // Shows Now Playing info on the OS lock screen and enables
@@ -666,7 +673,11 @@ function onPlayerStateChange(event) {
     stopListeningTimer();
     if (event.data === YT.PlayerState.PAUSED) {
       releaseWakeLock();
-      stopBgAudioKeepAlive();
+      // Only stop the background keep-alive when the user explicitly paused
+      // (app is in the foreground).  If the document is hidden, iOS locked the
+      // screen or the user switched apps — keep the audio session alive so
+      // playback can resume automatically when the screen comes back on.
+      if (!document.hidden) stopBgAudioKeepAlive();
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'paused';
       }
