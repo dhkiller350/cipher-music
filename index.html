@@ -10,7 +10,12 @@
   <meta name="apple-mobile-web-app-title" content="Cipher Music" />
   <meta name="description" content="Stream music with Cipher — your personal music player" />
   <title>Cipher Music</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Ccircle cx='14' cy='14' r='13' stroke='%2300d4ff' stroke-width='2' fill='%230f0f1a'/%3E%3Cpath d='M10 9 L10 19 L20 14 Z' fill='%2300d4ff'/%3E%3Ccircle cx='14' cy='14' r='3' fill='%237c3aed'/%3E%3C/svg%3E" />
+  <!-- Favicon — tab icon next to the page title -->
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="icon-16.png" />
+  <!-- iOS "Add to Home Screen" icon -->
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="manifest" href="manifest.json" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -18,6 +23,21 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="dark-mode">
+
+  <!-- ── PWA Install Banner (shown by JS when beforeinstallprompt fires) ── -->
+  <div id="pwa-install-banner" class="pwa-install-banner hidden" role="banner" aria-live="polite">
+    <div class="pwa-banner-content">
+      <img src="icon-192.png" alt="Cipher Music" class="pwa-banner-icon" />
+      <div class="pwa-banner-text">
+        <strong>Install Cipher Music</strong>
+        <span>Add to your home screen for the best experience</span>
+      </div>
+    </div>
+    <div class="pwa-banner-actions">
+      <button id="btn-pwa-install" class="btn-primary pwa-install-btn">Install</button>
+      <button id="btn-pwa-dismiss" class="pwa-dismiss-btn" aria-label="Dismiss install banner">✕</button>
+    </div>
+  </div>
 
   <!-- ═══════════════════════════════════════════
        GLOBAL HEADER
@@ -810,23 +830,38 @@
 
           <div class="settings-group glass-card">
             <h3 class="settings-group-title">Install App</h3>
-            <div class="setting-row">
+            <!-- Shown on Android/Desktop when browser fires beforeinstallprompt -->
+            <div class="setting-row" id="install-prompt-row" style="display:none;">
+              <div class="setting-info">
+                <span class="setting-name">📲 Install Cipher Music</span>
+                <span class="setting-desc">Add to your home screen for the full app experience</span>
+              </div>
+              <button id="btn-install-app" class="btn-primary">Install App</button>
+            </div>
+            <!-- Always-visible fallback row -->
+            <div class="setting-row" id="install-manual-row">
               <div class="setting-info">
                 <span class="setting-name">Add to Home Screen</span>
-                <span class="setting-desc">Install Cipher Music on iOS or Android</span>
+                <span class="setting-desc">Install Cipher Music as an app on your device</span>
               </div>
-              <button id="btn-install-app" class="btn-secondary">Install</button>
+              <button id="btn-install-app-fallback" class="btn-secondary">Install</button>
             </div>
             <div class="setting-row">
               <div class="setting-info">
-                <span class="setting-name">iOS</span>
-                <span class="setting-desc">Tap Share → "Add to Home Screen" in Safari</span>
+                <span class="setting-name">🍎 iOS (Safari)</span>
+                <span class="setting-desc">Tap the Share icon (□↑) → "Add to Home Screen"</span>
               </div>
             </div>
             <div class="setting-row">
               <div class="setting-info">
-                <span class="setting-name">Android</span>
-                <span class="setting-desc">Tap the menu (⋮) → "Add to Home Screen" in Chrome</span>
+                <span class="setting-name">🤖 Android (Chrome)</span>
+                <span class="setting-desc">Tap the menu (⋮) → "Add to Home Screen" or use the Install button above</span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">🖥️ Desktop (Chrome/Edge)</span>
+                <span class="setting-desc">Click the install icon (⊕) in the address bar or use the Install button above</span>
               </div>
             </div>
           </div>

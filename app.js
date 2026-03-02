@@ -1337,22 +1337,47 @@ function toggleVideoMode() {
 // ═══════════════════════════════════════════════════════════
 // PWA INSTALL
 // ═══════════════════════════════════════════════════════════
+const INSTALL_INSTRUCTIONS = 'To install: tap Share → "Add to Home Screen" (iOS Safari) or use the browser menu → "Add to Home Screen" (Android/Desktop Chrome)';
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   state.deferredInstallPrompt = e;
-  const btn = $('#btn-install-app');
-  if (btn) btn.classList.add('install-available');
+
+  // Show the floating install banner and push player bar up
+  const banner = $('#pwa-install-banner');
+  if (banner) banner.classList.remove('hidden');
+  document.body.classList.add('pwa-banner-visible');
+
+  // Show the dedicated install row in Settings
+  const promptRow = $('#install-prompt-row');
+  if (promptRow) promptRow.style.display = '';
 });
 
-function handleInstallApp() {
+window.addEventListener('appinstalled', () => {
+  // Hide banner once installed
+  $('#pwa-install-banner')?.classList.add('hidden');
+  document.body.classList.remove('pwa-banner-visible');
+  state.deferredInstallPrompt = null;
+  showToast('Cipher Music installed! 🎉', 'success');
+});
+
+function triggerInstallPrompt() {
   if (state.deferredInstallPrompt) {
     state.deferredInstallPrompt.prompt();
-    state.deferredInstallPrompt.userChoice.then(() => {
+    state.deferredInstallPrompt.userChoice.then((choice) => {
+      if (choice.outcome === 'accepted') {
+        $('#pwa-install-banner')?.classList.add('hidden');
+        document.body.classList.remove('pwa-banner-visible');
+      }
       state.deferredInstallPrompt = null;
     });
   } else {
-    showToast('To install: tap Share → "Add to Home Screen" (iOS) or menu → "Add to Home Screen" (Android)', 'info', 6000);
+    showToast(INSTALL_INSTRUCTIONS, 'info', 7000);
   }
+}
+
+function handleInstallApp() {
+  triggerInstallPrompt();
 }
 
 function handlePayment(e) {
@@ -1772,6 +1797,12 @@ function bindEvents() {
 
   // ── Install app ──
   $('#btn-install-app')?.addEventListener('click', handleInstallApp);
+  $('#btn-install-app-fallback')?.addEventListener('click', handleInstallApp);
+  // Floating banner buttons
+  $('#btn-pwa-install')?.addEventListener('click', () => triggerInstallPrompt());
+  $('#btn-pwa-dismiss')?.addEventListener('click', () => {
+    $('#pwa-install-banner')?.classList.add('hidden');
+  });
 
   // ── Hamburger sidebar toggle ──
   $('#sidebar-toggle')?.addEventListener('click', () => {
