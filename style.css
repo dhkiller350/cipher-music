@@ -3014,6 +3014,22 @@ body:not(.dark-mode) .liked-sort-select { background: #fff; color: #111133; }
   animation: maint-spin 0.9s linear infinite;
 }
 @keyframes maint-spin { to { transform: rotate(360deg); } }
+.maint-admin-btn {
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid rgba(0,212,255,0.25);
+  color: rgba(255,255,255,0.35);
+  font-size: 0.75rem;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+.maint-admin-btn:hover {
+  color: #00d4ff;
+  border-color: rgba(0,212,255,0.6);
+  background: rgba(0,212,255,0.06);
+}
 
 /* ═══════════════════════════════════════════════════════════
    ADMIN / DEBUG PANEL

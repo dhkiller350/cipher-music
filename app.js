@@ -79,7 +79,7 @@ const ADMIN_PIN_KEY = 'cipher_admin_pin';    // localStorage key for PIN hash
 // Pre-computed SHA-256 of the default admin PIN ("5555").
 const DEFAULT_ADMIN_PIN_HASH = 'c1f330d0aff31c1c87403f1e4347bcc21aff7c179908723535f2b31723702525';
 const MAINT_KEY    = 'cipher_maintenance';   // localStorage key for maintenance flag
-const _adminDefaults = { maintenanceMode: false, isAdminSession: false, quotaUsedToday: 0 };
+const _adminDefaults = { maintenanceMode: false, isAdminSession: false, quotaUsedToday: 0, fromOverlay: false };
 const adminState = Object.assign({}, _adminDefaults);
 const _adminLogs = []; // in-memory error log (max 200 entries)
 
@@ -3898,11 +3898,19 @@ function showAdminPinModal() {
   modal.classList.remove('hidden');
 }
 
+/** Called by the "Admin Access" button on the maintenance overlay. */
+function openAdminFromOverlay() {
+  adminState.fromOverlay = true;
+  showAdminPinModal();
+}
+
 /** Called by the PIN modal submit button. */
 async function submitAdminPin() {
   const input = document.getElementById('admin-pin-input');
   const pin = input?.value || '';
   document.getElementById('admin-pin-modal')?.classList.add('hidden');
+  const fromOverlay = adminState.fromOverlay;
+  adminState.fromOverlay = false;
 
   if (!pin) return;
 
@@ -3916,6 +3924,13 @@ async function submitAdminPin() {
   }
 
   adminState.isAdminSession = true;
+
+  // If the user came from the maintenance overlay, lift maintenance and open panel
+  if (fromOverlay) {
+    _disableMaintenanceMode();
+    showToast('✅ Maintenance mode OFF — app is live.', 'success', 3000);
+  }
+
   const panel = document.getElementById('admin-panel');
   panel?.classList.add('open');
   refreshAdminPanel();
@@ -4127,6 +4142,14 @@ function _removeMaintenanceOverlay() {
   document.getElementById('maintenance-overlay')?.classList.add('hidden');
 }
 
+/** Shared helper: disable maintenance mode, lift overlay, post to server. */
+function _disableMaintenanceMode() {
+  adminState.maintenanceMode = false;
+  localStorage.setItem(MAINT_KEY, '0');
+  _removeMaintenanceOverlay();
+  try { _postMaintenanceState(false, []); } catch (_) { /* best-effort */ }
+}
+
 /** Poll the status endpoint every 30 s for cross-device maintenance changes. */
 function _startMaintenancePoller() {
   // Listen for same-origin tab broadcasts
@@ -4298,12 +4321,8 @@ window.CipherAdmin = {
 
   /** Disable maintenance mode immediately. */
   maintenanceOff() {
-    adminState.maintenanceMode = false;
-    localStorage.setItem(MAINT_KEY, '0');
-    _liftMaintenanceOverlay();
+    _disableMaintenanceMode();
     showToast('🟢 Maintenance mode disabled.', 'success', 3000);
-    // Push to server if connected
-    try { _postMaintenanceState(false, []); } catch (_) { /* best-effort */ }
     console.log('%c[Cipher] Maintenance mode: OFF', 'color:#00d4ff');
     return 'Maintenance mode is now OFF';
   },
