@@ -3,8 +3,10 @@
    ═══════════════════════════════════════════════════════════ */
 
 // ── Configuration ─────────────────────────────────────────
+const YOUTUBE_API_KEY_STORAGE = 'cipher_youtube_api_key'; // localStorage key for runtime API key override
+const MIN_API_KEY_LENGTH = 20; // YouTube Data API v3 keys are 39 chars; reject anything shorter
 const CONFIG = {
-  YOUTUBE_API_KEY:     "AIzaSyAxMywGGrwQ2FoXClwrOn6LmuWPuYGCKBY",
+  YOUTUBE_API_KEY:     localStorage.getItem(YOUTUBE_API_KEY_STORAGE)?.trim() || "AIzaSyAxMywGGrwQ2FoXClwrOn6LmuWPuYGCKBY",
   EMAILJS_SERVICE_ID:  "service_p32tpor",
   EMAILJS_TEMPLATE_ID: "template_vjpbh3p",
   EMAILJS_PUBLIC_KEY:  "IJSM7Zp-wxJkkxVN7",
@@ -78,7 +80,7 @@ function _logAccessEvent(event, email, username) {
 const APP_VERSION = '2.9'; // bump to show changelog on next load
 
 // ── API key presence check (no network call — save quota) ──
-if (!CONFIG.YOUTUBE_API_KEY || CONFIG.YOUTUBE_API_KEY.length < 20) {
+if (!CONFIG.YOUTUBE_API_KEY || CONFIG.YOUTUBE_API_KEY.length < MIN_API_KEY_LENGTH) {
   console.error('[Cipher] YOUTUBE_API_KEY is missing or too short — search will not work.');
 }
 
@@ -4063,7 +4065,8 @@ function refreshAdminPanel() {
   const keyEl = document.getElementById('admin-api-key');
   if (keyEl) {
     const k = CONFIG.YOUTUBE_API_KEY || '';
-    keyEl.textContent = k ? k.slice(0, 8) + '…' + k.slice(-4) : '(not set)';
+    const overridden = !!localStorage.getItem(YOUTUBE_API_KEY_STORAGE)?.trim();
+    keyEl.textContent = k ? k.slice(0, 8) + '…' + k.slice(-4) + (overridden ? ' (custom)' : '') : '(not set)';
     keyEl.style.color = k.length >= 20 ? '#00d4ff' : '#ff4444';
   }
   // Version
@@ -4143,7 +4146,7 @@ async function _runMaintenanceChecks() {
   logCheck('HTTPS / Secure context', isSecure, location.protocol);
 
   // 2. API key presence
-  const keyOk = !!(CONFIG.YOUTUBE_API_KEY && CONFIG.YOUTUBE_API_KEY.length >= 20);
+  const keyOk = !!(CONFIG.YOUTUBE_API_KEY && CONFIG.YOUTUBE_API_KEY.length >= MIN_API_KEY_LENGTH);
   logCheck('YouTube API key present', keyOk, keyOk ? CONFIG.YOUTUBE_API_KEY.slice(0,8)+'…' : 'missing or too short');
 
   // 3. YouTube API reachability (live network call)
@@ -4342,6 +4345,22 @@ async function adminChangePin() {
   const inp = document.getElementById('admin-change-pin-input');
   if (inp) inp.value = '';
   showToast('✅ Admin PIN updated.', 'success');
+}
+
+function adminUpdateApiKey() {
+  const newKey = document.getElementById('admin-api-key-input')?.value?.trim() || '';
+  if (!newKey || newKey.length < MIN_API_KEY_LENGTH) {
+    showToast(`API key must be at least ${MIN_API_KEY_LENGTH} characters.`, 'error'); return;
+  }
+  if (!newKey.startsWith('AIza')) {
+    showToast('API key should start with "AIza" — please check the value.', 'error'); return;
+  }
+  localStorage.setItem(YOUTUBE_API_KEY_STORAGE, newKey);
+  CONFIG.YOUTUBE_API_KEY = newKey;
+  const inp = document.getElementById('admin-api-key-input');
+  if (inp) inp.value = '';
+  refreshAdminPanel();
+  showToast('✅ YouTube API key updated.', 'success');
 }
 
 /** First-time PIN setup — shown when ?debug=1 and no PIN is set. */

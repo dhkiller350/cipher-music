@@ -1407,6 +1407,13 @@
                    onkeydown="if(event.key==='Enter')adminChangePin()" />
           </div>
           <button class="btn-outline btn-full" onclick="adminChangePin()">🔑 Update Admin PIN</button>
+          <div class="form-group" style="margin-top:12px">
+            <label for="admin-api-key-input">YouTube API Key (overrides built-in key)</label>
+            <input type="password" id="admin-api-key-input"
+                   placeholder="Paste new API key here" maxlength="100" autocomplete="off"
+                   onkeydown="if(event.key==='Enter')adminUpdateApiKey()" />
+          </div>
+          <button class="btn-outline btn-full" onclick="adminUpdateApiKey()">🔑 Update YouTube API Key</button>
         </section>
 
       </div><!-- /admin-main-sections -->
