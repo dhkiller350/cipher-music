@@ -1,0 +1,32 @@
+/* Admin-specific styles */
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+.topbar h1 { font-size: 1.5rem; font-weight: 700; }
+.search-bar { display: flex; gap: 8px; flex-wrap: wrap; }
+.search-bar .form-control { width: 220px; }
+.modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 999;
+    align-items: center;
+    justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: var(--shadow);
+}
+.modal h2 { margin-bottom: 16px; font-size: 1.15rem; }
+.modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
