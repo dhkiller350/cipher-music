@@ -30,13 +30,18 @@ $ADMIN_PIN_HASH = getenv('CIPHER_ADMIN_PIN_HASH')
     ?: '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0'; // hash of '0000'
 
 // File where pending payments are stored (JSON array)
-$PAYMENTS_FILE = __DIR__ . '/data/payments.json';
-$USERS_FILE    = __DIR__ . '/data/users.json';
-$BANNED_FILE   = __DIR__ . '/data/banned.json';
-$STATUS_FILE   = __DIR__ . '/data/status.json';
+$PAYMENTS_FILE   = __DIR__ . '/data/payments.json';
+$USERS_FILE      = __DIR__ . '/data/users.json';
+$BANNED_FILE     = __DIR__ . '/data/banned.json';
+$STATUS_FILE     = __DIR__ . '/data/status.json';
+$ACCESS_LOG_FILE = __DIR__ . '/data/access_log.json';
 
 // Salt appended when computing activation codes (must match app.js CM2026_CIPHER)
 const ACTIVATION_SALT = 'CM2026_CIPHER';
+// Maximum access log entries displayed in the dashboard
+const LOG_DISPLAY_LIMIT = 200;
+// Maximum UA string length shown in the dashboard
+const LOG_UA_DISPLAY   = 60;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function load_payments(string $file): array {
@@ -257,6 +262,14 @@ if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST') {
         save_maintenance($STATUS_FILE, false);
         $message = 'Maintenance mode DISABLED.';
     }
+
+    // ── Log actions ───────────────────────────────────────────────────────────
+    if ($action === 'clear_log') {
+        $dir = dirname($ACCESS_LOG_FILE);
+        if (!is_dir($dir)) mkdir($dir, 0700, true);
+        file_put_contents($ACCESS_LOG_FILE, '[]');
+        $message = 'Access log cleared.';
+    }
 }
 
 $payments  = $authed ? load_payments($PAYMENTS_FILE) : [];
@@ -267,6 +280,14 @@ $revoked   = array_filter($payments, fn($p) => ($p['status'] ?? '') === 'revoked
 $users         = $authed ? load_users($USERS_FILE)  : [];
 $banned        = $authed ? load_users($BANNED_FILE) : [];
 $maintenanceOn = $authed ? load_maintenance($STATUS_FILE) : false;
+
+// Access log — newest first, cap at LOG_DISPLAY_LIMIT for the page
+$accessLog = [];
+if ($authed && file_exists($ACCESS_LOG_FILE)) {
+    $accessLog = json_decode(file_get_contents($ACCESS_LOG_FILE) ?: '[]', true) ?: [];
+    $accessLog = array_reverse($accessLog);
+    if (count($accessLog) > LOG_DISPLAY_LIMIT) $accessLog = array_slice($accessLog, 0, LOG_DISPLAY_LIMIT);
+}
 $clientIP      = cipher_client_ip();
 
 ?><!DOCTYPE html>
@@ -448,12 +469,17 @@ $clientIP      = cipher_client_ip();
       <div class="stat-n"><?= count($banned) ?></div>
       <div class="stat-l">Banned</div>
     </div>
+    <div class="stat-card">
+      <div class="stat-n"><?= count($accessLog) ?></div>
+      <div class="stat-l">Log entries</div>
+    </div>
   </div>
 
   <!-- Tabs -->
   <div class="tabs">
     <button class="tab active" onclick="showTab('payments',this)">💳 Payments</button>
     <button class="tab" onclick="showTab('users',this)">👤 Users</button>
+    <button class="tab" onclick="showTab('logs',this)">📋 Logs</button>
     <button class="tab" onclick="showTab('maintenance',this)">🔧 Maintenance</button>
   </div>
 
@@ -695,6 +721,78 @@ $clientIP      = cipher_client_ip();
     <?php endif; ?>
 
   </div><!-- /tab-users -->
+
+  <!-- ════════════════════════ LOGS TAB ════════════════════════ -->
+  <div id="tab-logs" class="tab-panel">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+      <p class="section-head" style="margin-bottom:0">📋 Access Log — logins, signups &amp; connections</p>
+      <?php if (!empty($accessLog)): ?>
+      <form method="post" onsubmit="return confirm('Clear the entire access log?')">
+        <input type="hidden" name="action" value="clear_log">
+        <button type="submit" class="btn btn-danger" style="font-size:0.78rem;padding:5px 10px">🗑 Clear Log</button>
+      </form>
+      <?php endif; ?>
+    </div>
+
+    <?php if (empty($accessLog)): ?>
+      <p class="empty-msg">No access log entries yet.<br>
+        <small>Log entries appear when users log in or sign up and the app is configured with a server URL.</small>
+      </p>
+    <?php else: ?>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Event</th>
+          <th>User</th>
+          <th>IP Address</th>
+          <th>Browser / Device</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody>
+      <?php foreach ($accessLog as $entry): ?>
+        <?php
+          $ev = $entry['event'] ?? 'access';
+          $evColor = match($ev) {
+              'login'  => 'var(--accent)',
+              'signup' => 'var(--success)',
+              'logout' => 'var(--text2)',
+              default  => 'var(--warn)',
+          };
+          $evIcon = match($ev) {
+              'login'  => '🔑',
+              'signup' => '✨',
+              'logout' => '👋',
+              default  => '👁',
+          };
+          // Simple UA shortening for readability
+          $ua = $entry['ua'] ?? '';
+          $uaShort = preg_replace('/\s*\([^)]+\)/u', '', $ua);
+          $uaShort = strlen($uaShort) > LOG_UA_DISPLAY ? substr($uaShort, 0, LOG_UA_DISPLAY) . '…' : $uaShort;
+        ?>
+        <tr>
+          <td data-label="Event">
+            <span style="color:<?= $evColor ?>;font-weight:600"><?= $evIcon ?> <?= h($ev) ?></span>
+          </td>
+          <td data-label="User">
+            <?php if (!empty($entry['username']) && $entry['username'] !== '—'): ?>
+              <?= h($entry['username']) ?><br>
+            <?php endif; ?>
+            <small style="color:var(--text2)"><?= h($entry['email'] ?? '—') ?></small>
+          </td>
+          <td data-label="IP"><span class="code-chip" style="font-size:0.77rem"><?= h($entry['ip'] ?? '—') ?></span></td>
+          <td data-label="Browser" title="<?= h($ua) ?>"><small style="color:var(--text2)"><?= h($uaShort ?: '—') ?></small></td>
+          <td data-label="Time" style="white-space:nowrap">
+            <small><?= !empty($entry['logged_at']) ? date('M j, Y g:ia', strtotime($entry['logged_at'])) : '—' ?></small>
+          </td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+    <?php endif; ?>
+
+  </div><!-- /tab-logs -->
 
   <!-- ════════════════════════ MAINTENANCE TAB ════════════════════════ -->
   <div id="tab-maintenance" class="tab-panel">

@@ -36,9 +36,10 @@ cipher_cors('GET, POST, DELETE, PATCH, OPTIONS');
 $ADMIN_PIN_HASH = getenv('CIPHER_ADMIN_PIN_HASH')
     ?: '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0'; // hash of '0000'
 
-$PAYMENTS_FILE = __DIR__ . '/data/payments.json';
-$USERS_FILE    = __DIR__ . '/data/users.json';
-$BANNED_FILE   = __DIR__ . '/data/banned.json';
+$PAYMENTS_FILE   = __DIR__ . '/data/payments.json';
+$USERS_FILE      = __DIR__ . '/data/users.json';
+$BANNED_FILE     = __DIR__ . '/data/banned.json';
+$ACCESS_LOG_FILE = __DIR__ . '/data/access_log.json';
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 $token = trim($_SERVER['HTTP_X_ADMIN_TOKEN'] ?? $_GET['token'] ?? '');
@@ -187,5 +188,34 @@ if ($resource === 'banned') {
     respond(['ok' => false, 'error' => 'Method not allowed'], 405);
 }
 
+// ────────────────────────────────────────────────────────── ACCESS LOG
+if ($resource === 'access_log') {
+    if ($method === 'GET') {
+        if (!file_exists($ACCESS_LOG_FILE)) respond(['ok' => true, 'entries' => [], 'total' => 0]);
+        $entries = json_decode(file_get_contents($ACCESS_LOG_FILE) ?: '[]', true) ?: [];
+        $limit   = max(1, min(1000, (int)($_GET['limit'] ?? 200)));
+        $entries = array_reverse($entries); // newest first
+        if (count($entries) > $limit) $entries = array_slice($entries, 0, $limit);
+        respond(['ok' => true, 'entries' => $entries, 'total' => count($entries)]);
+    }
+
+    if ($method === 'DELETE') {
+        $email = strtolower(trim($_GET['email'] ?? $body['email'] ?? ''));
+        if ($email) {
+            $entries = file_exists($ACCESS_LOG_FILE)
+                ? (json_decode(file_get_contents($ACCESS_LOG_FILE) ?: '[]', true) ?: [])
+                : [];
+            $entries = array_values(array_filter($entries, fn($e) => strtolower($e['email'] ?? '') !== $email));
+            write_json($ACCESS_LOG_FILE, $entries);
+            respond(['ok' => true, 'message' => "Log entries for {$email} removed."]);
+        }
+        // Clear entire log
+        write_json($ACCESS_LOG_FILE, []);
+        respond(['ok' => true, 'message' => 'Access log cleared.']);
+    }
+
+    respond(['ok' => false, 'error' => 'Method not allowed'], 405);
+}
+
 // Unknown resource
-respond(['ok' => false, 'error' => 'Unknown resource. Valid: users, payments, status, banned'], 404);
+respond(['ok' => false, 'error' => 'Unknown resource. Valid: users, payments, status, banned, access_log'], 404);

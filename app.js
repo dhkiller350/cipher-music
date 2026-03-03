@@ -25,18 +25,43 @@ function _loadAdminBase() {
   if (CONFIG.ADMIN_NOTIFY_URL) return CONFIG.ADMIN_NOTIFY_URL.replace(/\/[^/]+$/, '');
   return '';
 }
-let ADMIN_BASE_URL   = _loadAdminBase();
-let ADMIN_STATUS_URL = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/status.php' : '';
-let ADMIN_USERS_URL  = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/users.php'  : '';
+let ADMIN_BASE_URL      = _loadAdminBase();
+let ADMIN_STATUS_URL   = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/status.php'     : '';
+let ADMIN_USERS_URL    = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/users.php'      : '';
+let ADMIN_LOG_URL      = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/access_log.php' : '';
 // Notify URL for payment notifications (sibling of the base)
 function _adminNotifyUrl() {
   return ADMIN_BASE_URL ? ADMIN_BASE_URL + '/notify.php' : CONFIG.ADMIN_NOTIFY_URL || '';
 }
 /** Call after saving a new server URL to localStorage. */
 function _refreshAdminUrls() {
-  ADMIN_BASE_URL   = _loadAdminBase();
-  ADMIN_STATUS_URL = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/status.php' : '';
-  ADMIN_USERS_URL  = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/users.php'  : '';
+  ADMIN_BASE_URL    = _loadAdminBase();
+  ADMIN_STATUS_URL  = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/status.php'     : '';
+  ADMIN_USERS_URL   = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/users.php'      : '';
+  ADMIN_LOG_URL     = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/access_log.php' : '';
+}
+
+/**
+ * Send a best-effort access log event to the PHP server.
+ * @param {'login'|'signup'|'access'|'logout'} event
+ * @param {string} email
+ * @param {string} username
+ */
+function _logAccessEvent(event, email, username) {
+  if (!ADMIN_LOG_URL) return;
+  try {
+    fetch(ADMIN_LOG_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event,
+        email:    email    || '',
+        username: username || '',
+        ua:       navigator.userAgent || '',
+        ts:       Date.now()
+      })
+    }).catch(() => {}); // best-effort — never block the user
+  } catch (_) { /* ignore */ }
 }
 
 const APP_VERSION = '2.9'; // bump to show changelog on next load
@@ -718,6 +743,7 @@ function handleVerify() {
   };
   saveUser(user);
   updateHeaderUser();
+  _logAccessEvent('signup', user.email, user.username);
 
   state.pendingSignup = null;
   state.pendingCode   = null;
@@ -885,11 +911,9 @@ async function handleLogin(e) {
 
   saveUser(user);
   updateHeaderUser();
+  _logAccessEvent('login', user.email, user.username);
   showView('player');
 }
-
-// ═══════════════════════════════════════════════════════════
-// VIEW MANAGEMENT
 // ═══════════════════════════════════════════════════════════
 function showView(viewName) {
   state.currentView = viewName;

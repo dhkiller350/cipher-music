@@ -52,6 +52,15 @@ function _cipher_is_allowed_origin(string $o): bool {
     if (preg_match('/^http:\/\/127\.0\.0\.1(:\d{1,5})?$/', $o)) return true;
     // http://[::1] or http://[::1]:PORT  (IPv6 loopback)
     if (preg_match('/^http:\/\/\[::1\](:\d{1,5})?$/', $o)) return true;
+    // file:// origin (VS Code Live Server / open-file-directly)
+    if ($o === 'null' || $o === 'file://') return true;
+    // Allow any origin when the PHP server itself is running on localhost
+    // (detected by SERVER_NAME / SERVER_ADDR being loopback).
+    $serverName = $_SERVER['SERVER_NAME'] ?? '';
+    $serverAddr = $_SERVER['SERVER_ADDR'] ?? '';
+    $isLocalhost = in_array($serverName, ['localhost', '127.0.0.1', '::1'], true)
+        || in_array($serverAddr, ['127.0.0.1', '::1'], true);
+    if ($isLocalhost) return true;
     return false;
 }
 
