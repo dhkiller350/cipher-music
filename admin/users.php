@@ -12,27 +12,8 @@
  * Users are identified by email address; duplicate emails are silently ignored.
  */
 
-// ── CORS ─────────────────────────────────────────────────────────────────────
-$allowed_origins = [
-    'https://dhkiller350.github.io',
-    'http://localhost',
-    'http://127.0.0.1',
-];
-$origin = rtrim($_SERVER['HTTP_ORIGIN'] ?? '', '/');
-if (in_array($origin, $allowed_origins, true)) {
-    header('Access-Control-Allow-Origin: ' . $origin);
-    header('Vary: Origin');
-} else {
-    http_response_code(403);
-    echo json_encode(['ok' => false, 'error' => 'Origin not allowed']);
-    exit;
-}
-header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, X-Admin-Token');
-header('Access-Control-Max-Age: 86400');
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
-
-header('Content-Type: application/json');
+require_once __DIR__ . '/cors.php';
+cipher_cors('GET, POST, DELETE, OPTIONS');
 
 $ADMIN_PIN_HASH = getenv('CIPHER_ADMIN_PIN_HASH')
     ?: 'c1f330d0aff31c1c87403f1e4347bcc21aff7c179908723535f2b31723702525'; // hash of '5555'

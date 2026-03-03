@@ -15,14 +15,29 @@ const CONFIG = {
   ADMIN_NOTIFY_URL:    ''
 };
 
-// Derive sibling admin endpoint URLs from ADMIN_NOTIFY_URL.
-// e.g. if ADMIN_NOTIFY_URL = 'https://example.com/admin/notify.php'
-// then ADMIN_BASE_URL      = 'https://example.com/admin'
-const ADMIN_BASE_URL = CONFIG.ADMIN_NOTIFY_URL
-  ? CONFIG.ADMIN_NOTIFY_URL.replace(/\/[^/]+$/, '')
-  : '';
-const ADMIN_STATUS_URL = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/status.php' : '';
-const ADMIN_USERS_URL  = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/users.php'  : '';
+// Admin server base URL — runtime-configurable.
+// Priority: 1) localStorage 'cipher_admin_server_url'
+//           2) derived from CONFIG.ADMIN_NOTIFY_URL (static fallback)
+//           3) empty string (server features disabled)
+function _loadAdminBase() {
+  const stored = (localStorage.getItem('cipher_admin_server_url') || '').trim().replace(/\/+$/, '');
+  if (stored) return stored;
+  if (CONFIG.ADMIN_NOTIFY_URL) return CONFIG.ADMIN_NOTIFY_URL.replace(/\/[^/]+$/, '');
+  return '';
+}
+let ADMIN_BASE_URL   = _loadAdminBase();
+let ADMIN_STATUS_URL = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/status.php' : '';
+let ADMIN_USERS_URL  = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/users.php'  : '';
+// Notify URL for payment notifications (sibling of the base)
+function _adminNotifyUrl() {
+  return ADMIN_BASE_URL ? ADMIN_BASE_URL + '/notify.php' : CONFIG.ADMIN_NOTIFY_URL || '';
+}
+/** Call after saving a new server URL to localStorage. */
+function _refreshAdminUrls() {
+  ADMIN_BASE_URL   = _loadAdminBase();
+  ADMIN_STATUS_URL = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/status.php' : '';
+  ADMIN_USERS_URL  = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/users.php'  : '';
+}
 
 const APP_VERSION = '2.9'; // bump to show changelog on next load
 
@@ -2190,9 +2205,10 @@ function handlePayment(e) {
  */
 async function sendAdminPaymentNotification(pending) {
   // 1. Notify via PHP server (if configured)
-  if (CONFIG.ADMIN_NOTIFY_URL) {
+  const notifyUrl = _adminNotifyUrl();
+  if (notifyUrl) {
     try {
-      await fetch(CONFIG.ADMIN_NOTIFY_URL, {
+      await fetch(notifyUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(pending)
@@ -3349,9 +3365,9 @@ function init() {
   updatePlanBadge();
   renderRecentlyPlayed();
 
-  // Register service worker
+  // Register service worker (use relative path so it works on GitHub Pages subpaths)
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 
   bindEvents();
@@ -3459,8 +3475,8 @@ function renderAdminPayments() {
   _renderList(localLog);
 
   // Fetch from server and merge (cross-device payments)
-  if (CONFIG.ADMIN_NOTIFY_URL) {
-    const serverPaymentsUrl = CONFIG.ADMIN_NOTIFY_URL.replace(/\/[^/]+$/, '') + '/data/payments.json';
+  if (ADMIN_BASE_URL) {
+    const serverPaymentsUrl = ADMIN_BASE_URL + '/data/payments.json';
     fetch(serverPaymentsUrl + '?_=' + Date.now(), { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(serverPayments => {
@@ -3673,6 +3689,22 @@ function refreshAdminPanel() {
   // Maintenance toggle
   const mEl = document.getElementById('admin-maint-toggle');
   if (mEl) mEl.checked = adminState.maintenanceMode;
+  // Remote server URL — only update the input when user is not actively typing
+  const serverInp = document.getElementById('admin-server-url-input');
+  if (serverInp && !serverInp.matches(':focus')) {
+    serverInp.value = localStorage.getItem('cipher_admin_server_url') || '';
+    serverInp.placeholder = ADMIN_BASE_URL ? ADMIN_BASE_URL : 'http://127.0.0.1:8080/admin';
+  }
+  const serverStatus = document.getElementById('admin-server-status');
+  if (serverStatus) {
+    if (ADMIN_BASE_URL) {
+      serverStatus.textContent = '✅ ' + ADMIN_BASE_URL;
+      serverStatus.style.color = '#00c853';
+    } else {
+      serverStatus.textContent = '❌ Not configured — enter URL above';
+      serverStatus.style.color = '#ff4444';
+    }
+  }
   // Log
   renderAdminLog();
   // Payments & Users
@@ -3951,4 +3983,36 @@ async function adminSetInitialPin() {
   showToast('✅ Admin PIN set! Panel unlocked.', 'success');
 }
 
+/**
+ * Save the admin remote server base URL (e.g. http://127.0.0.1:8080/admin).
+ * Called from the admin panel "Remote Server" section.
+ */
+function adminSaveServerUrl() {
+  const inp = document.getElementById('admin-server-url-input');
+  let url = (inp?.value || '').trim().replace(/\/+$/, '');
+  if (!url) { showToast('Enter a URL first.', 'error'); return; }
+  // Validate URL and explicitly check protocol (prevent javascript:, data:, etc.)
+  let parsed;
+  try { parsed = new URL(url); } catch (_) { showToast('Invalid URL — include http:// or https://', 'error'); return; }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    showToast('URL must start with http:// or https://', 'error'); return;
+  }
+  localStorage.setItem('cipher_admin_server_url', url);
+  _refreshAdminUrls();
+  // Restart poller with new URL
+  if (window._cipherMaintPollId) { clearInterval(window._cipherMaintPollId); window._cipherMaintPollId = null; }
+  _startMaintenancePoller();
+  showToast('✅ Remote server saved: ' + url, 'success', 3000);
+  refreshAdminPanel();
+}
+
+/** Clear the stored admin server URL (falls back to built-in CONFIG value). */
+function adminClearServerUrl() {
+  localStorage.removeItem('cipher_admin_server_url');
+  _refreshAdminUrls();
+  if (window._cipherMaintPollId) { clearInterval(window._cipherMaintPollId); window._cipherMaintPollId = null; }
+  _startMaintenancePoller();
+  showToast('Remote server URL cleared.', 'info', 2500);
+  refreshAdminPanel();
+}
 

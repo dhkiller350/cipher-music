@@ -13,36 +13,8 @@
  * Body: { plan, email, name, ref, ts }
  */
 
-// ── Allowed origins for CORS ──────────────────────────────────────────────────
-$allowed_origins = [
-    'https://dhkiller350.github.io',
-    'http://localhost',
-    'http://127.0.0.1',
-];
-
-$origin = rtrim($_SERVER['HTTP_ORIGIN'] ?? '', '/');
-
-// Set CORS headers — only allow the listed origins
-if (in_array($origin, $allowed_origins, true)) {
-    header('Access-Control-Allow-Origin: ' . $origin);
-    header('Vary: Origin');
-} else {
-    // No matching origin — block the request
-    http_response_code(403);
-    header('Content-Type: application/json');
-    echo json_encode(['ok' => false, 'error' => 'Origin not allowed']);
-    exit;
-}
-
-header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
-header('Access-Control-Max-Age: 86400');
-
-// Handle pre-flight OPTIONS request
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
+require_once __DIR__ . '/cors.php';
+cipher_cors('POST, OPTIONS');
 
 // Only accept POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {

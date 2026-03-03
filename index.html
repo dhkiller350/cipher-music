@@ -1348,6 +1348,22 @@
           <div id="admin-users-list"><p class="admin-hint">No registered accounts.</p></div>
         </section>
 
+        <!-- Remote Server -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">🌐 Remote Server</h4>
+          <p class="admin-hint" style="margin-bottom:8px">Connect to a local PHP server (e.g. <code>http://127.0.0.1:8080/admin</code>) to sync payments, users and maintenance state across devices.</p>
+          <div id="admin-server-status" class="admin-hint" style="margin-bottom:8px;font-size:0.78rem">❌ Not configured</div>
+          <div class="form-group" style="margin-bottom:6px">
+            <input type="url" id="admin-server-url-input" placeholder="http://127.0.0.1:8080/admin"
+                   style="width:100%;padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#e0e0e0;font-size:0.82rem"
+                   onkeydown="if(event.key==='Enter')adminSaveServerUrl()" />
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-primary" style="flex:1;font-size:0.82rem;padding:7px" onclick="adminSaveServerUrl()">💾 Save</button>
+            <button class="btn-ghost" style="flex:1;font-size:0.82rem;padding:7px" onclick="adminClearServerUrl()">✕ Clear</button>
+          </div>
+        </section>
+
         <!-- App Info -->
         <section class="admin-section">
           <h4 class="admin-section-title">App Info</h4>
