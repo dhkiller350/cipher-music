@@ -133,6 +133,13 @@ function _pacificDateString() {
 
 // Load maintenance flag and quota from localStorage at startup
 (function loadAdminState() {
+  // Without a configured server, localStorage is the only source of truth for
+  // maintenance mode — but a downloaded/offline copy can get permanently stuck
+  // if the flag was set to '1' in a previous session and there is no remote state
+  // to override it.  Clear it automatically so offline users are never locked out.
+  if (!_loadAdminBase()) {
+    localStorage.setItem(MAINT_KEY, '0');
+  }
   adminState.maintenanceMode = localStorage.getItem(MAINT_KEY) === '1';
   // Seed default admin PIN (5555) if none has been set yet.
   if (!localStorage.getItem(ADMIN_PIN_KEY)) {
@@ -3603,20 +3610,21 @@ function init() {
 
   // Open admin panel if ?debug=1 or ?admin=1 is in the URL
   const _params = new URLSearchParams(window.location.search);
+
+  // ?reset — clear maintenance mode, then reload without the param
+  if (_params.get('reset') !== null) {
+    _disableMaintenanceMode();
+    const url = new URL(window.location.href);
+    url.searchParams.delete('reset');
+    window.location.replace(url.toString());
+    return;
+  }
+
   if (_params.get('debug') === '1' || _params.get('admin') === '1') {
-    setTimeout(() => {
-      if (!_assertAdminUser()) return;
-      const hasPin = !!localStorage.getItem(ADMIN_PIN_KEY);
-      if (!hasPin) {
-        // First-time setup — show panel directly with setup form
-        const panel = document.getElementById('admin-panel');
-        panel?.classList.add('open');
-        document.getElementById('admin-setup-section')?.classList.remove('hidden');
-        document.getElementById('admin-main-sections')?.classList.add('hidden');
-      } else {
-        openAdminPanel();
-      }
-    }, 500);
+    // Bypass the email check and go straight to the PIN modal — same as Ctrl+Shift+D.
+    // The admin PIN is still required, so this is safe for offline/downloaded copies
+    // where no account may be logged in.
+    setTimeout(() => openAdminFromOverlay(), 400);
   }
 }
 
