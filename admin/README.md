@@ -25,6 +25,23 @@ A **PHP-based** admin panel for the owner/creator to manage payments, users, and
 
 ---
 
+## Which URL do I use?
+
+There are **two different URLs** — they do different things:
+
+| URL | What it's for | How you use it |
+|-----|--------------|----------------|
+| `http://127.0.0.1:8080/admin/index.php` | **Browser admin dashboard** — visual UI to manage payments, users, bans, maintenance | Open in your **browser** |
+| `http://127.0.0.1:8080/admin` | **API base / Remote Server URL** — the endpoint the app uses to sync data | Paste into the **app Settings → Remote Server URL** field |
+
+**Quick rule:**
+- If you're opening something in a browser tab → use `.../admin/index.php`
+- If you're pasting a URL into the app settings → use `.../admin` (no filename)
+
+> On a real server replace `127.0.0.1:8080` with your domain, e.g. `https://yourdomain.com/admin/index.php` and `https://yourdomain.com/admin`.
+
+---
+
 ## Quick Start — VS Code / Ubuntu Terminal (no remote server needed)
 
 From the **VS Code terminal** (or any Ubuntu terminal) in the repository root:
@@ -39,12 +56,13 @@ sudo apt install php-cli
 
 Open your browser and go to:
 - **App**: http://localhost:8080
-- **Admin dashboard**: http://localhost:8080/admin/index.php
+- **Admin dashboard** (open in browser): http://localhost:8080/admin/index.php
 
-In the **admin panel settings** (or app settings), set the Remote Server URL to:
+In the **app Settings → Remote Server URL** field, paste:
 ```
 http://localhost:8080/admin
 ```
+*(This is the API base — not the dashboard page. No `/index.php`.)*
 
 From now on, every login, signup, and payment on any device/browser that is
 pointed at your server will be logged and visible in the admin dashboard.

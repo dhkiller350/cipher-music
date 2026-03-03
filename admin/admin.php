@@ -135,7 +135,17 @@ if ($cmd === 'status') {
     echo "  Pending payments  : $pending\n";
     echo "  Access log entries: " . count($logs)     . "\n";
     hr('═');
+    echo "  URLs (when running locally on port 8080)\n";
+    hr();
+    echo "  🖥  Browser dashboard  : http://127.0.0.1:8080/admin/index.php\n";
+    echo "       Open this in your browser to manage everything visually.\n";
+    echo "\n";
+    echo "  🔗  App / Remote Server URL  : http://127.0.0.1:8080/admin\n";
+    echo "       Paste this into the app Settings → Remote Server URL field.\n";
+    echo "       This is the API base the app uses to sync users, payments, etc.\n";
+    hr('═');
     echo "  Terminal commands:\n";
+    echo "    php admin/admin.php watch                 live feed of new payments & logins\n";
     echo "    php admin/admin.php maintenance on|off\n";
     echo "    php admin/admin.php logs       [--limit=N]\n";
     echo "    php admin/admin.php payments   [--limit=N]\n";
