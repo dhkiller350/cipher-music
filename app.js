@@ -4269,3 +4269,139 @@ function adminClearServerUrl() {
   refreshAdminPanel();
 }
 
+// ═══════════════════════════════════════════════════════════
+// CONSOLE HELPERS — owner / developer access
+// ─────────────────────────────────────────────────────────
+// These are available in the browser DevTools console.
+// Open DevTools → Console tab, then type  CipherAdmin.help()
+// ═══════════════════════════════════════════════════════════
+window.CipherAdmin = {
+  /** Print all available commands. */
+  help() {
+    /* eslint-disable no-console */
+    console.log(
+      '%cCipher Music — Console Commands\n' +
+      '%c' +
+      'CipherAdmin.help()           — show this message\n' +
+      'CipherAdmin.maintenanceOff() — turn OFF maintenance mode\n' +
+      'CipherAdmin.maintenanceOn()  — turn ON  maintenance mode\n' +
+      'CipherAdmin.maintenanceStatus() — show current maintenance state\n' +
+      'CipherAdmin.openPanel()      — open admin panel (bypasses email check)\n' +
+      'CipherAdmin.unlockPanel()    — authenticate admin session with your PIN\n' +
+      'CipherAdmin.getPin()         — show stored admin PIN hash\n' +
+      'CipherAdmin.setServerUrl(url) — set remote PHP server URL\n',
+      'font-size:14px;font-weight:bold;color:#00d4ff',
+      'font-size:12px;color:#ccc'
+    );
+    /* eslint-enable no-console */
+  },
+
+  /** Disable maintenance mode immediately. */
+  maintenanceOff() {
+    adminState.maintenanceMode = false;
+    localStorage.setItem(MAINT_KEY, '0');
+    _liftMaintenanceOverlay();
+    showToast('🟢 Maintenance mode disabled.', 'success', 3000);
+    // Push to server if connected
+    try { _postMaintenanceState(false, []); } catch (_) { /* best-effort */ }
+    console.log('%c[Cipher] Maintenance mode: OFF', 'color:#00d4ff');
+    return 'Maintenance mode is now OFF';
+  },
+
+  /** Enable maintenance mode. */
+  maintenanceOn() {
+    adminState.maintenanceMode = true;
+    localStorage.setItem(MAINT_KEY, '1');
+    _applyMaintenanceOverlay();
+    showToast('🔴 Maintenance mode enabled.', 'info', 3000);
+    try { _postMaintenanceState(true, []); } catch (_) { /* best-effort */ }
+    console.log('%c[Cipher] Maintenance mode: ON', 'color:#ff9900');
+    return 'Maintenance mode is now ON';
+  },
+
+  /** Show the current maintenance mode state. */
+  maintenanceStatus() {
+    const state_ = adminState.maintenanceMode ? 'ON 🔴' : 'OFF 🟢';
+    console.log(`%c[Cipher] Maintenance mode: ${state_}`, 'color:#00d4ff');
+    return `Maintenance mode is ${state_}`;
+  },
+
+  /**
+   * Open the admin panel.
+   * If already authenticated this session it opens directly.
+   * Otherwise shows the PIN modal — the correct PIN is still required.
+   */
+  openPanel() {
+    // Bypass the email guard for the owner operating from the console
+    const panel = document.getElementById('admin-panel');
+    if (!panel) { console.error('[Cipher] Admin panel element not found in DOM.'); return; }
+
+    if (adminState.isAdminSession) {
+      panel.classList.add('open');
+      refreshAdminPanel();
+      console.log('%c[Cipher] Admin panel opened.', 'color:#00d4ff');
+      return 'Admin panel opened';
+    }
+
+    // Show the PIN modal
+    showAdminPinModal();
+    console.log('%c[Cipher] Enter your admin PIN in the modal.', 'color:#00d4ff');
+    return 'PIN modal shown — enter your PIN to authenticate';
+  },
+
+  /**
+   * Authenticate the admin session programmatically.
+   * Usage: CipherAdmin.unlockPanel('YOUR_PIN')
+   */
+  async unlockPanel(pin) {
+    if (!pin) { console.error('[Cipher] Usage: CipherAdmin.unlockPanel("your_pin")'); return; }
+    const expectedHash = localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN_HASH;
+    const enteredHash  = await sha256Hex(String(pin));
+    if (enteredHash !== expectedHash) {
+      showToast('❌ Incorrect admin PIN.', 'error', 3000);
+      console.error('[Cipher] Incorrect PIN.');
+      return 'Incorrect PIN';
+    }
+    adminState.isAdminSession = true;
+    const panel = document.getElementById('admin-panel');
+    panel?.classList.add('open');
+    refreshAdminPanel();
+    // Also close any open PIN modal
+    document.getElementById('admin-pin-modal')?.classList.add('hidden');
+    console.log('%c[Cipher] Admin session authenticated. Panel is open.', 'color:#00d4ff');
+    return 'Authenticated — admin panel is open';
+  },
+
+  /** Show the current stored admin PIN hash (for debugging key mismatches). */
+  getPin() {
+    const hash = localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN_HASH;
+    console.log('%c[Cipher] Admin PIN hash: ' + hash, 'color:#888');
+    return hash;
+  },
+
+  /** Set the remote PHP server URL (same as the admin panel input). */
+  setServerUrl(url) {
+    if (!url) { console.error('[Cipher] Usage: CipherAdmin.setServerUrl("http://localhost:8080/admin")'); return; }
+    let parsed;
+    try { parsed = new URL(url); } catch (_) { console.error('[Cipher] Invalid URL.'); return; }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      console.error('[Cipher] URL must start with http:// or https://');
+      return;
+    }
+    const clean = url.trim().replace(/\/+$/, '');
+    localStorage.setItem('cipher_admin_server_url', clean);
+    _refreshAdminUrls();
+    if (window._cipherMaintPollId) { clearInterval(window._cipherMaintPollId); window._cipherMaintPollId = null; }
+    _startMaintenancePoller();
+    console.log('%c[Cipher] Server URL set: ' + clean, 'color:#00d4ff');
+    return 'Server URL saved: ' + clean;
+  }
+};
+
+// Print a one-line hint at startup so the owner can discover the commands.
+console.log(
+  '%c[Cipher Music] Owner console available → type %cCipherAdmin.help()%c for commands.',
+  'color:#555', 'color:#00d4ff;font-weight:bold', 'color:#555'
+);
+
+
