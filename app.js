@@ -16,13 +16,22 @@ const CONFIG = {
 };
 
 // Admin server base URL — runtime-configurable.
-// Priority: 1) localStorage 'cipher_admin_server_url'
-//           2) derived from CONFIG.ADMIN_NOTIFY_URL (static fallback)
-//           3) empty string (server features disabled)
+// Priority: 1) localStorage 'cipher_admin_server_url'  (manual override — highest priority)
+//           2) derived from CONFIG.ADMIN_NOTIFY_URL    (static build-time override)
+//           3) window.location.origin + '/admin'       (auto-detect — works with any host,
+//                                                        localhost, ngrok tunnel, or real domain)
+//           4) empty string                            (server features disabled)
 function _loadAdminBase() {
   const stored = (localStorage.getItem('cipher_admin_server_url') || '').trim().replace(/\/+$/, '');
   if (stored) return stored;
   if (CONFIG.ADMIN_NOTIFY_URL) return CONFIG.ADMIN_NOTIFY_URL.replace(/\/[^/]+$/, '');
+  // Auto-detect: derive the admin API base from the page's own origin so the
+  // app connects automatically for every user — whether opened via localhost,
+  // an ngrok tunnel (https://xxx.ngrok-free.app), or a real domain.
+  const origin = (window.location?.origin) || '';
+  if (origin && origin !== 'null' && !origin.startsWith('file:')) {
+    return origin + '/admin';
+  }
   return '';
 }
 let ADMIN_BASE_URL      = _loadAdminBase();
@@ -3976,7 +3985,8 @@ function refreshAdminPanel() {
   const serverStatus = document.getElementById('admin-server-status');
   if (serverStatus) {
     if (ADMIN_BASE_URL) {
-      serverStatus.textContent = '✅ ' + ADMIN_BASE_URL;
+      const isManual = !!(localStorage.getItem('cipher_admin_server_url') || '').trim();
+      serverStatus.textContent = (isManual ? '✅ ' : '🔗 Auto: ') + ADMIN_BASE_URL;
       serverStatus.style.color = '#00c853';
     } else {
       serverStatus.textContent = '❌ Not configured — enter URL above';
