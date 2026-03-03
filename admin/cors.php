@@ -11,6 +11,7 @@
  *   - https://dhkiller350.github.io   (production)
  *   - http://localhost[:<port>]        (local dev, any port)
  *   - http://127.0.0.1[:<port>]       (local dev, any port)
+ *   - http://[::1][:<port>]           (IPv6 loopback, any port)
  *
  * Note: All write operations additionally require the admin PIN hash
  * via the X-Admin-Token header, so any-port localhost access is safe —
@@ -49,5 +50,25 @@ function _cipher_is_allowed_origin(string $o): bool {
     if (preg_match('/^http:\/\/localhost(:\d{1,5})?$/', $o)) return true;
     // http://127.0.0.1 or http://127.0.0.1:PORT
     if (preg_match('/^http:\/\/127\.0\.0\.1(:\d{1,5})?$/', $o)) return true;
+    // http://[::1] or http://[::1]:PORT  (IPv6 loopback)
+    if (preg_match('/^http:\/\/\[::1\](:\d{1,5})?$/', $o)) return true;
     return false;
 }
+
+/**
+ * Return the real client IP address, preferring an IPv6 address.
+ * Falls back to REMOTE_ADDR (which may be an IPv4-mapped IPv6 address).
+ */
+function cipher_client_ip(): string {
+    // Trusted forwarded headers (set by nginx/Apache reverse-proxy)
+    foreach (['HTTP_X_REAL_IP', 'HTTP_X_FORWARDED_FOR'] as $header) {
+        $val = $_SERVER[$header] ?? '';
+        if ($val !== '') {
+            // X-Forwarded-For may be a comma-separated list; take first entry
+            $ip = trim(explode(',', $val)[0]);
+            if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
+        }
+    }
+    return $_SERVER['REMOTE_ADDR'] ?? '';
+}
+

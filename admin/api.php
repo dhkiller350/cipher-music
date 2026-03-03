@@ -12,11 +12,14 @@
  * ENDPOINTS
  * ─────────
  *  GET    /admin/api.php?resource=users             List all users
- *  DELETE /admin/api.php?resource=users&email=x     Delete user by email
+ *  DELETE /admin/api.php?resource=users&email=x     Delete user by email (also bans)
  *
  *  GET    /admin/api.php?resource=payments          List all payments
  *  POST   /admin/api.php?resource=payments          {action:"confirm"|"revoke", ref:"..."}
  *  DELETE /admin/api.php?resource=payments&ref=x    Delete payment record by ref
+ *
+ *  GET    /admin/api.php?resource=banned            List banned emails
+ *  PATCH  /admin/api.php?resource=banned            {email:"..."} — unban a user
  *
  *  GET    /admin/api.php?resource=status            Health check (auth required)
  *
@@ -27,7 +30,7 @@
  */
 
 require_once __DIR__ . '/cors.php';
-cipher_cors('GET, POST, DELETE, OPTIONS');
+cipher_cors('GET, POST, DELETE, PATCH, OPTIONS');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 $ADMIN_PIN_HASH = getenv('CIPHER_ADMIN_PIN_HASH')
@@ -165,6 +168,22 @@ if ($resource === 'banned') {
     if ($method === 'GET') {
         respond(['ok' => true, 'banned' => read_json($BANNED_FILE)]);
     }
+
+    // PATCH — unban a user (remove from banned list)
+    if ($method === 'PATCH') {
+        $email = strtolower(trim($_GET['email'] ?? $body['email'] ?? ''));
+        if (!$email) respond(['ok' => false, 'error' => 'email required'], 400);
+
+        $banned = read_json($BANNED_FILE);
+        $before = count($banned);
+        $banned = array_values(array_filter($banned, fn($e) => strtolower($e) !== $email));
+        write_json($BANNED_FILE, $banned);
+
+        respond(['ok' => true, 'message' => $before !== count($banned)
+            ? "User {$email} has been unbanned."
+            : "User {$email} was not in the banned list."]);
+    }
+
     respond(['ok' => false, 'error' => 'Method not allowed'], 405);
 }
 
