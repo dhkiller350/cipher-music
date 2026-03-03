@@ -3467,6 +3467,14 @@ function bindEvents() {
       // Clear all user-specific state (plan, settings, media history, etc.)
       _clearUserState();
 
+      // Prevent the browser from auto-filling or auto-signing in with the
+      // deleted account's saved email/password after the reload.
+      navigator.credentials?.preventSilentAccess?.();
+
+      // Signal the next page load to wipe the login-form fields so the
+      // browser doesn't re-populate them from autofill.
+      sessionStorage.setItem('cipher_just_deleted', '1');
+
       // Clear service-worker caches then reload — the page will land on login
       // because no cipher_user key remains in localStorage.
       const doReload = () => window.location.reload();
@@ -3807,6 +3815,19 @@ function init() {
   updatePlanBanner();
   updatePlanBadge();
   renderRecentlyPlayed();
+
+  // If the page reloaded after an account deletion, wipe any saved/autofilled
+  // email and password from the login and signup forms so no credentials are
+  // left visible or accessible.
+  if (sessionStorage.getItem('cipher_just_deleted')) {
+    sessionStorage.removeItem('cipher_just_deleted');
+    requestAnimationFrame(() => {
+      ['login-email', 'login-password', 'su-username', 'su-email', 'su-password', 'su-confirm'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+    });
+  }
 
   // Register service worker (use relative path so it works on GitHub Pages subpaths)
   if ('serviceWorker' in navigator) {
