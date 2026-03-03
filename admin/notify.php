@@ -70,5 +70,9 @@ $payments[] = $payment;
 // Save
 $ok = (bool) file_put_contents($file, json_encode($payments, JSON_PRETTY_PRINT));
 
+// Mirror payment notification to the terminal (PHP error_log → server stdout/stderr)
+// Name is omitted from the terminal line to limit PII exposure; full detail is in payments.json
+error_log("[Cipher] PAYMENT | ref={$payment['ref']} plan={$payment['plan']} email={$payment['email']} received_at={$payment['received_at']}");
+
 header('Content-Type: application/json');
 echo json_encode(['ok' => $ok]);

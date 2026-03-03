@@ -3843,11 +3843,12 @@ function adminDeleteUser(email) {
 }
 
 function initAdminPanel() {
-  // Ctrl+Shift+D (desktop)
+  // Ctrl+Shift+D (desktop) — bypasses email check, shows PIN modal.
+  // If maintenance mode is active, it is lifted automatically after a correct PIN.
   document.addEventListener('keydown', e => {
     if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
       e.preventDefault();
-      openAdminPanel();
+      openAdminFromOverlay();
     }
   });
 
@@ -3925,8 +3926,9 @@ async function submitAdminPin() {
 
   adminState.isAdminSession = true;
 
-  // If the user came from the maintenance overlay, lift maintenance and open panel
-  if (fromOverlay) {
+  // If the user came from the maintenance overlay or keyboard shortcut,
+  // lift maintenance (only if it is actually on) and open panel
+  if (fromOverlay && adminState.maintenanceMode) {
     _disableMaintenanceMode();
     showToast('✅ Maintenance mode OFF — app is live.', 'success', 3000);
   }

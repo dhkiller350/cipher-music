@@ -92,6 +92,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     save_log($LOG_FILE, $entries);
+
+    // Mirror the event to the terminal (PHP error_log → server stdout/stderr)
+    // Partially redact email to avoid unnecessary PII exposure in log files
+    $label = strtoupper($entry['event']);
+    $parts = explode('@', $entry['email']);
+    $masked_email = count($parts) === 2
+        ? substr($parts[0], 0, 2) . '***@' . $parts[1]
+        : $entry['email'];
+    error_log("[Cipher] {$label} | email={$masked_email} user={$entry['username']} ip={$entry['ip']} ts={$entry['logged_at']}");
+
     echo json_encode(['ok' => true]);
     exit;
 }
