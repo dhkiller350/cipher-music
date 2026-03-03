@@ -593,6 +593,24 @@ function clearUser() {
   localStorage.removeItem('cipher_user');
 }
 
+/**
+ * Clear all user-specific localStorage keys so a fresh login/signup
+ * always starts from a clean slate.  Admin-level keys (PIN, server URL,
+ * maintenance flag, banned list, quota counter, API-key override) are
+ * intentionally preserved — they are device/admin state, not user state.
+ */
+function _clearUserState() {
+  const USER_KEYS = [
+    'cipher_user', 'cipher_settings', 'cipher_active_plan',
+    'cipher_liked', 'cipher_recent', 'cipher_playlists',
+    'cipher_avatar', 'cipher_pending_payment', 'cipher_payment_log',
+    'cipher_seen_version',
+  ];
+  USER_KEYS.forEach(k => localStorage.removeItem(k));
+  state.user       = null;
+  state.activePlan = 'free';
+}
+
 /** Show the "Account Deleted / Banned" full-screen view with a countdown redirect. */
 function showBannedView() {
   showView('banned');
@@ -770,6 +788,11 @@ function handleVerify() {
 
   // Sign-up flow: create the account
   saveAccount(state.pendingSignup);
+
+  // Ensure every new account starts on the free plan regardless of any
+  // leftover plan state from a previous user on this device.
+  _clearUserState();
+  savePlan('free');
 
   // Log the user in immediately
   const user = {
@@ -3435,14 +3458,28 @@ function bindEvents() {
   $('#btn-delete-account')?.addEventListener('click', () => {
     if (window.confirm('Are you sure you want to delete your account? This cannot be undone.')) {
       stopAllMusic();
-      // Remove from accounts array
-      const accounts = getAccounts().filter(a => a.email !== state.user?.email);
+      const deletedEmail = state.user?.email;
+
+      // Remove this account from the local accounts store
+      const accounts = getAccounts().filter(a => a.email !== deletedEmail);
       localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
-      clearUser();
-      localStorage.removeItem('cipher_settings');
-      updateHeaderUser();
-      state.featuredLoaded = false;
-      showView('login');
+
+      // Clear all user-specific state (plan, settings, media history, etc.)
+      _clearUserState();
+
+      // Clear service-worker caches then reload — the page will land on login
+      // because no cipher_user key remains in localStorage.
+      const doReload = () => window.location.reload();
+      if ('caches' in window) {
+        caches.keys()
+          .then(keys => Promise.all(keys.map(k => caches.delete(k))))
+          .then(() => navigator.serviceWorker?.getRegistrations() ?? Promise.resolve([]))
+          .then(regs => Promise.all(regs.map(r => r.unregister())))
+          .then(doReload)
+          .catch(doReload);
+      } else {
+        doReload();
+      }
     }
   });
 
