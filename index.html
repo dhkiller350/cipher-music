@@ -1380,6 +1380,33 @@
           <div id="admin-users-list"><p class="admin-hint">No registered accounts.</p></div>
         </section>
 
+        <!-- Ban / Unban by Email -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">🚫 Ban / Unban by Email</h4>
+          <div class="form-group" style="margin-bottom:8px">
+            <label for="admin-ban-email-input">Ban email</label>
+            <div style="display:flex;gap:8px">
+              <input type="email" id="admin-ban-email-input" placeholder="user@example.com"
+                     maxlength="100" autocomplete="off"
+                     onkeydown="if(event.key==='Enter')adminBanByEmail()" />
+              <button class="btn-outline" style="flex-shrink:0" onclick="adminBanByEmail()">Ban</button>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:8px">
+            <label for="admin-unban-email-input">Unban email</label>
+            <div style="display:flex;gap:8px">
+              <input type="email" id="admin-unban-email-input" placeholder="user@example.com"
+                     maxlength="100" autocomplete="off"
+                     onkeydown="if(event.key==='Enter')adminUnbanByEmail()" />
+              <button class="btn-outline" style="flex-shrink:0" onclick="adminUnbanByEmail()">Unban</button>
+            </div>
+          </div>
+          <h5 class="admin-section-title" style="font-size:0.8rem;margin-top:10px">
+            Banned Emails <button class="admin-clear-log-btn" onclick="renderBannedList()">Refresh</button>
+          </h5>
+          <div id="admin-banned-list"><p class="admin-hint">No banned emails.</p></div>
+        </section>
+
         <!-- App Info -->
         <section class="admin-section">
           <h4 class="admin-section-title">App Info</h4>

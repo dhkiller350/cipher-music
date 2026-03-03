@@ -4047,6 +4047,123 @@ function adminDeleteUser(email) {
   showToast('Account banned and removed.', 'success', 2500);
 }
 
+/** Ban an email by typing it in the admin panel ban input. */
+function adminBanByEmail() {
+  const input = document.getElementById('admin-ban-email-input');
+  const email = (input?.value || '').trim().toLowerCase();
+  if (!email) { showToast('Please enter an email address.', 'info', 2000); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Invalid email address.', 'info', 2000); return; }
+
+  // Add to local banned list
+  const banned = JSON.parse(localStorage.getItem('cipher_banned_emails') || '[]');
+  if (!banned.some(b => b.toLowerCase() === email)) {
+    banned.push(email);
+    localStorage.setItem('cipher_banned_emails', JSON.stringify(banned));
+  }
+
+  // Remove from local accounts if present
+  const accounts = getAccounts().filter(a => a.email.toLowerCase() !== email);
+  localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+
+  // If the currently signed-in user was banned, sign them out and stop music
+  if (state.user?.email?.toLowerCase() === email) {
+    stopAllMusic();
+    clearUser();
+    updateHeaderUser();
+    state.featuredLoaded = false;
+    showView('login');
+  }
+
+  // Sync ban to server if configured
+  if (ADMIN_BASE_URL) {
+    const token = localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN_HASH;
+    fetch(`${ADMIN_BASE_URL}/api.php?resource=users`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
+      body: JSON.stringify({ email })
+    }).catch(() => {});
+  }
+
+  if (input) input.value = '';
+  renderBannedList();
+  renderAdminUsers();
+  showToast(`🚫 ${email} has been banned.`, 'success', 3000);
+}
+
+/** Unban an email by typing it in the admin panel unban input. */
+function adminUnbanByEmail() {
+  const input = document.getElementById('admin-unban-email-input');
+  const email = (input?.value || '').trim().toLowerCase();
+  if (!email) { showToast('Please enter an email address.', 'info', 2000); return; }
+
+  // Remove from local banned list
+  const banned = JSON.parse(localStorage.getItem('cipher_banned_emails') || '[]');
+  const updated = banned.filter(b => b.toLowerCase() !== email);
+  localStorage.setItem('cipher_banned_emails', JSON.stringify(updated));
+
+  // Sync unban to server if configured
+  if (ADMIN_BASE_URL) {
+    const token = localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN_HASH;
+    fetch(`${ADMIN_BASE_URL}/api.php?resource=banned`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
+      body: JSON.stringify({ email })
+    }).catch(() => {});
+  }
+
+  if (input) input.value = '';
+  renderBannedList();
+  renderAdminUsers();
+  showToast(`✅ ${email} has been unbanned.`, 'success', 3000);
+}
+
+/** Render the banned emails list in the admin panel. */
+function renderBannedList() {
+  const el = document.getElementById('admin-banned-list');
+  if (!el) return;
+
+  const _render = (bannedEmails) => {
+    if (bannedEmails.length === 0) {
+      el.innerHTML = '<p class="admin-hint">No banned emails.</p>';
+      return;
+    }
+    el.innerHTML = bannedEmails.map(e => `
+      <div class="admin-user-row admin-user-banned" style="padding:6px 8px">
+        <span class="admin-hint" style="flex:1;word-break:break-all">${escapeHtml(e)}</span>
+        <button class="admin-delete-btn" style="color:var(--success)"
+          data-unban-email="${escapeHtml(e)}"
+          title="Unban this email">✓</button>
+      </div>`).join('');
+    // Attach click handlers using data attributes (avoids inline JS / XSS)
+    el.querySelectorAll('[data-unban-email]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const unbanInput = document.getElementById('admin-unban-email-input');
+        if (unbanInput) unbanInput.value = btn.dataset.unbanEmail;
+        adminUnbanByEmail();
+      });
+    });
+  };
+
+  const localBanned = JSON.parse(localStorage.getItem('cipher_banned_emails') || '[]');
+  _render(localBanned);
+
+  // Merge with server banned list if configured
+  if (ADMIN_BASE_URL) {
+    const token = localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN_HASH;
+    fetch(`${ADMIN_BASE_URL}/api.php?resource=banned&_=${Date.now()}`, {
+      cache: 'no-store',
+      headers: { 'X-Admin-Token': token }
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.ok || !Array.isArray(data.banned)) return;
+        const merged = [...new Set([...localBanned, ...data.banned].map(e => e.toLowerCase()))];
+        localStorage.setItem('cipher_banned_emails', JSON.stringify(merged));
+        _render(merged);
+      }).catch(() => {});
+  }
+}
+
 function initAdminPanel() {
   // Ctrl+Shift+D (desktop) — bypasses email check, shows PIN modal.
   // If maintenance mode is active, it is lifted automatically after a correct PIN.
@@ -4170,6 +4287,7 @@ function refreshAdminPanel() {
   // Payments & Users
   renderAdminPayments();
   renderAdminUsers();
+  renderBannedList();
 }
 
 function renderAdminLog() {
