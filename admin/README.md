@@ -42,42 +42,6 @@ There are **two different URLs** — they do different things:
 
 ---
 
-## Auto-connection — no Remote Server URL setup needed
-
-The app **auto-detects** the PHP backend from the same host it was opened from.
-
-| How you open the app | What the app connects to automatically |
-|----------------------|----------------------------------------|
-| `http://127.0.0.1:8080` (localhost) | `http://127.0.0.1:8080/admin` |
-| `https://xxxx.ngrok-free.app` (ngrok tunnel) | `https://xxxx.ngrok-free.app/admin` |
-| `https://yourdomain.com` (real server) | `https://yourdomain.com/admin` |
-
-Users simply open the app URL and data syncs automatically — no settings to configure.
-
-### Using ngrok to share your local server with the internet
-
-```bash
-# 1. Start your PHP server
-./start-server.sh
-
-# 2. In a second terminal, start ngrok (install from https://ngrok.com if needed)
-ngrok http 8080
-
-# ngrok prints a line like:
-#   Forwarding  https://372a-xxxx.ngrok-free.app -> http://127.0.0.1:8080
-```
-
-Share `https://372a-xxxx.ngrok-free.app` with users. When they open that URL the
-app automatically connects to `https://372a-xxxx.ngrok-free.app/admin` — no manual
-Remote Server URL entry required.
-
-> **Note:** `http://127.0.0.1:4040` is ngrok's **local traffic inspector** (shows
-> requests going through the tunnel). It is **not** the app URL — do not use it.
-
-> **Free tier:** The ngrok URL changes every restart. Upgrade for a static domain.
-
----
-
 ## Quick Start — VS Code / Ubuntu Terminal (no remote server needed)
 
 From the **VS Code terminal** (or any Ubuntu terminal) in the repository root:
@@ -91,12 +55,14 @@ sudo apt install php-cli
 ```
 
 Open your browser and go to:
-- **App**: http://localhost:8080  ← the app auto-connects to its own backend
+- **App**: http://localhost:8080
 - **Admin dashboard** (open in browser): http://localhost:8080/admin/index.php
 
-The app auto-connects to `http://localhost:8080/admin` automatically — no Remote
-Server URL setting required. If you open the app via an ngrok URL, it auto-connects
-to that ngrok URL's `/admin` path instead.
+In the **app Settings → Remote Server URL** field, paste:
+```
+http://localhost:8080/admin
+```
+*(This is the API base — not the dashboard page. No `/index.php`.)*
 
 From now on, every login, signup, and payment on any device/browser that is
 pointed at your server will be logged and visible in the admin dashboard.
