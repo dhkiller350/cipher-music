@@ -42,6 +42,7 @@ let ADMIN_BASE_URL      = _loadAdminBase();
 let ADMIN_STATUS_URL   = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/status.php'     : '';
 let ADMIN_USERS_URL    = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/users.php'      : '';
 let ADMIN_LOG_URL      = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/access_log.php' : '';
+let ADMIN_ACCOUNTS_URL = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/accounts.php'   : '';
 // Notify URL for payment notifications (sibling of the base)
 function _adminNotifyUrl() {
   return ADMIN_BASE_URL ? ADMIN_BASE_URL + '/notify.php' : CONFIG.ADMIN_NOTIFY_URL || '';
@@ -52,6 +53,7 @@ function _refreshAdminUrls() {
   ADMIN_STATUS_URL  = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/status.php'     : '';
   ADMIN_USERS_URL   = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/users.php'      : '';
   ADMIN_LOG_URL     = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/access_log.php' : '';
+  ADMIN_ACCOUNTS_URL = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/accounts.php'  : '';
 }
 
 /**
@@ -539,6 +541,14 @@ function saveAccount(account) {
       body: JSON.stringify({ username: account.username, email: account.email, memberSince: account.memberSince })
     }).catch(() => {}); // best-effort, never block the user
   }
+  // Sync full account (with passwordHash) to accounts store for cross-device login
+  if (ADMIN_ACCOUNTS_URL) {
+    fetch(ADMIN_ACCOUNTS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'sync', ...account })
+    }).catch(() => {});
+  }
 }
 
 function findAccount(emailOrUsername) {
@@ -851,13 +861,24 @@ function handleResetPassword(e) {
   if (!valid) return;
 
   hashPassword(password).then(passwordHash => {
+    if (!state.pendingReset) return;
+    const resetEmail = state.pendingReset.email;
     const accounts = getAccounts().map(a => {
-      if (a.email.toLowerCase() === state.pendingReset.email.toLowerCase()) {
+      if (a.email.toLowerCase() === resetEmail.toLowerCase()) {
         return { ...a, passwordHash };
       }
       return a;
     });
     localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+
+    // Sync updated password hash to server for cross-device login
+    if (ADMIN_ACCOUNTS_URL) {
+      fetch(ADMIN_ACCOUNTS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_password', email: resetEmail, passwordHash })
+      }).catch(() => {});
+    }
 
     state.pendingReset = null;
 
@@ -902,7 +923,36 @@ async function handleLogin(e) {
     return;
   }
 
-  const account = findAccount(emailOrUser);
+  let account = findAccount(emailOrUser);
+
+  // If account not found locally and server is configured, try cross-device login
+  if (!account && ADMIN_ACCOUNTS_URL) {
+    const passwordHash = await hashPassword(password);
+    try {
+      const res = await fetch(ADMIN_ACCOUNTS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'login', emailOrUsername: emailOrUser, passwordHash })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && data.account) {
+          // Save fetched account locally for future logins
+          const fetched = data.account;
+          if (banned.some(b => b.toLowerCase() === fetched.email.toLowerCase())) {
+            const el = $('#err-login-email');
+            if (el) el.textContent = 'Account not created — either banned or disconnected.';
+            return;
+          }
+          const accounts = getAccounts();
+          accounts.push(fetched);
+          localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+          account = fetched;
+        }
+      }
+    } catch (_) { /* server unavailable — fall through to "no account" error */ }
+  }
+
   if (!account) {
     const el = $('#err-login-email');
     if (el) el.textContent = 'No account found with that email or username.';
@@ -1818,7 +1868,27 @@ function updateProfileStats() {
       'gospel praise worship music': 'Gospel',
       'blues music songs': 'Blues',
       'workout gym motivation music 2025': 'Workout',
-      'lo-fi chill study music': 'Lo-Fi'
+      'lo-fi chill study music': 'Lo-Fi',
+      'folk acoustic music best': 'Folk',
+      'viking folk music best songs': 'Viking Folk',
+      'dark country music best songs': 'Dark Country',
+      'medieval music songs best': 'Medieval',
+      'celtic folk music best songs': 'Celtic',
+      'gothic music best songs': 'Gothic',
+      'darkwave music best songs': 'Darkwave',
+      'outlaw country music best songs': 'Outlaw Country',
+      'bluegrass music best songs': 'Bluegrass',
+      'americana roots music best songs': 'Americana',
+      'folk metal music best songs': 'Folk Metal',
+      'black metal music best songs': 'Black Metal',
+      'doom metal music best songs': 'Doom Metal',
+      'industrial music best songs': 'Industrial',
+      'neo soul music best songs': 'Neo Soul',
+      'psychedelic rock music best songs': 'Psychedelic',
+      'synth wave synthwave music best songs': 'Synthwave',
+      'bossa nova jazz music best songs': 'Bossa Nova',
+      'flamenco music best songs': 'Flamenco',
+      'opera classical vocal best songs': 'Opera'
     };
     genreEl.textContent = chipMap[state.activeChip] || 'Music';
   }
@@ -1906,6 +1976,15 @@ async function handleChangePassword(e) {
     return a;
   });
   localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+
+  // Sync updated password hash to server for cross-device login
+  if (ADMIN_ACCOUNTS_URL) {
+    fetch(ADMIN_ACCOUNTS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update_password', email: state.user.email, passwordHash: newHash })
+    }).catch(() => {});
+  }
 
   // Clear form
   ['cp-current', 'cp-new', 'cp-confirm'].forEach(id => {
