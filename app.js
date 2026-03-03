@@ -4359,8 +4359,8 @@ function adminUpdateApiKey() {
   CONFIG.YOUTUBE_API_KEY = newKey;
   const inp = document.getElementById('admin-api-key-input');
   if (inp) inp.value = '';
-  refreshAdminPanel();
-  showToast('✅ YouTube API key updated.', 'success');
+  showToast('✅ YouTube API key saved — reloading to activate…', 'success');
+  setTimeout(() => window.location.reload(), 1500);
 }
 
 /** First-time PIN setup — shown when ?debug=1 and no PIN is set. */
