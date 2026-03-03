@@ -96,6 +96,35 @@ function _pacificDateString() {
   };
 })();
 
+/** Returns ms until the next midnight in US Pacific time (when YouTube resets its daily quota). */
+function _msUntilPacificMidnight() {
+  try {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false
+    }).formatToParts(now);
+    const h = +parts.find(p => p.type === 'hour').value;
+    const m = +parts.find(p => p.type === 'minute').value;
+    const s = +parts.find(p => p.type === 'second').value;
+    const msIntoDay = (h * 3600 + m * 60 + s) * 1000;
+    return 24 * 60 * 60 * 1000 - msIntoDay;
+  } catch (_) {
+    // Fallback: schedule for 24 hours from now if Intl timezone is unavailable
+    return 24 * 60 * 60 * 1000;
+  }
+}
+
+/** Schedule a quota reset at the next Pacific midnight, then re-schedule daily. */
+function _scheduleQuotaMidnightReset() {
+  setTimeout(() => {
+    adminState.quotaUsedToday = 0;
+    localStorage.removeItem('cipher_quota_today');
+    _searchCache = {};
+    _scheduleQuotaMidnightReset(); // re-schedule for the following midnight
+  }, _msUntilPacificMidnight());
+}
+
 /** Persist today's quota counter to localStorage (keyed by Pacific date). */
 function _saveQuota() {
   localStorage.setItem('cipher_quota_today', JSON.stringify({
@@ -3286,13 +3315,9 @@ function init() {
   bindEvents();
   initAdminPanel(); // attach admin panel keyboard shortcut
 
-  // Auto-reset YouTube quota counter and search cache every 5 hours so users
-  // can continue searching without hitting the "temporarily unavailable" screen.
-  setInterval(() => {
-    adminState.quotaUsedToday = 0;
-    localStorage.removeItem('cipher_quota_today');
-    _searchCache = {};
-  }, 5 * 60 * 60 * 1000); // 5 hours in ms
+  // Auto-reset YouTube quota counter and search cache at Pacific midnight,
+  // matching when YouTube's API quota actually resets.
+  _scheduleQuotaMidnightReset();
 
   // Hash-based routing: allow direct links to signup/reset
   const hash = window.location.hash.slice(1);
