@@ -1246,6 +1246,20 @@
     <span class="maint-icon">🔧</span>
   </div>
 
+  <!-- Full-screen overlay shown to non-admin users during maintenance -->
+  <div id="maintenance-overlay" class="maintenance-overlay hidden" role="status" aria-live="polite">
+    <div class="maint-overlay-inner">
+      <svg class="maint-logo" width="72" height="72" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="14" cy="14" r="13" stroke="#00d4ff" stroke-width="2"/>
+        <path d="M10 9 L10 19 L20 14 Z" fill="#00d4ff"/>
+        <circle cx="14" cy="14" r="3" fill="#7c3aed"/>
+      </svg>
+      <h2 class="maint-overlay-title">Cipher Music</h2>
+      <p class="maint-overlay-msg">🔧 We're currently performing maintenance.<br>We'll be back very soon!</p>
+      <div class="maint-spinner"></div>
+    </div>
+  </div>
+
   <!-- ── Admin PIN Entry Modal (password-masked, no prompt()) ── -->
   <div id="admin-pin-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Admin PIN entry">
     <div class="modal-overlay" onclick="document.getElementById('admin-pin-modal').classList.add('hidden')"></div>

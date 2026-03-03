@@ -15,6 +15,15 @@ const CONFIG = {
   ADMIN_NOTIFY_URL:    ''
 };
 
+// Derive sibling admin endpoint URLs from ADMIN_NOTIFY_URL.
+// e.g. if ADMIN_NOTIFY_URL = 'https://example.com/admin/notify.php'
+// then ADMIN_BASE_URL      = 'https://example.com/admin'
+const ADMIN_BASE_URL = CONFIG.ADMIN_NOTIFY_URL
+  ? CONFIG.ADMIN_NOTIFY_URL.replace(/\/[^/]+$/, '')
+  : '';
+const ADMIN_STATUS_URL = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/status.php' : '';
+const ADMIN_USERS_URL  = ADMIN_BASE_URL ? ADMIN_BASE_URL + '/users.php'  : '';
+
 const APP_VERSION = '2.9'; // bump to show changelog on next load
 
 // ── API key presence check (no network call — save quota) ──
@@ -462,6 +471,14 @@ function saveAccount(account) {
   const accounts = getAccounts();
   accounts.push(account);
   localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+  // Sync to server so the admin can see users from all devices
+  if (ADMIN_USERS_URL) {
+    fetch(ADMIN_USERS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: account.username, email: account.email, memberSince: account.memberSince })
+    }).catch(() => {}); // best-effort, never block the user
+  }
 }
 
 function findAccount(emailOrUsername) {
@@ -3358,10 +3375,13 @@ function init() {
     showView('login');
   }
 
-  // Show maintenance banner if active for non-admin visitors
+  // Show maintenance overlay/banner if active for non-admin visitors
   if (adminState.maintenanceMode && !adminState.isAdminSession) {
-    document.getElementById('maintenance-banner')?.classList.remove('hidden');
+    _applyMaintenanceOverlay();
   }
+
+  // Start polling for remote maintenance state changes (cross-device)
+  _startMaintenancePoller();
 
   // Open admin panel if ?debug=1 or ?admin=1 is in the URL
   const _params = new URLSearchParams(window.location.search);
@@ -3408,28 +3428,60 @@ function _assertAdminUser() {
 function renderAdminPayments() {
   const el = document.getElementById('admin-payments-list');
   if (!el) return;
-  const log = JSON.parse(localStorage.getItem('cipher_payment_log') || '[]');
-  if (log.length === 0) {
-    el.innerHTML = '<p class="admin-hint">No payment requests logged yet.</p>';
-    return;
-  }
+
   const planNames = { pro: 'Pro Pack ($9.99/mo)', premium: 'Premium ($19.99/mo)' };
-  el.innerHTML = log.slice().reverse().map(p => {
-    const code = generateActivationCode(p.plan, p.email, p.ref);
-    const confirmed = p.status === 'confirmed';
-    const statusHtml = confirmed
-      ? '<span class="admin-pay-badge admin-pay-confirmed">✅ Confirmed</span>'
-      : '<span class="admin-pay-badge admin-pay-pending">⏳ Pending</span>';
-    const confirmBtn = confirmed ? '' :
-      `<button class="btn-outline admin-action-btn" onclick="adminConfirmPayment(${escapeHtml(JSON.stringify(p.ref))})">✅ Mark Confirmed</button>`;
-    return `<div class="admin-payment-card">
-      <div class="admin-payment-row"><strong>${escapeHtml(p.name || '(no name)')}</strong>${statusHtml}</div>
-      <div class="admin-payment-row admin-hint"><span>${escapeHtml(p.email)}</span><span>${escapeHtml(planNames[p.plan] || p.plan)}</span></div>
-      <div class="admin-payment-row admin-hint"><span>Ref: <code>${escapeHtml(p.ref)}</code></span><span>${new Date(p.ts).toLocaleDateString()}</span></div>
-      <div class="admin-payment-code-row"><code class="admin-activation-code">${escapeHtml(code)}</code><button class="admin-copy-btn" onclick="adminCopyCode(${escapeHtml(JSON.stringify(code))})">Copy</button></div>
-      ${confirmBtn}
-    </div>`;
-  }).join('');
+
+  const _renderList = (log) => {
+    if (log.length === 0) {
+      el.innerHTML = '<p class="admin-hint">No payment requests logged yet.</p>';
+      return;
+    }
+    el.innerHTML = log.slice().reverse().map(p => {
+      const code = generateActivationCode(p.plan, p.email, p.ref);
+      const confirmed = p.status === 'confirmed';
+      const statusHtml = confirmed
+        ? '<span class="admin-pay-badge admin-pay-confirmed">✅ Confirmed</span>'
+        : '<span class="admin-pay-badge admin-pay-pending">⏳ Pending</span>';
+      const confirmBtn = confirmed ? '' :
+        `<button class="btn-outline admin-action-btn" onclick="adminConfirmPayment(${escapeHtml(JSON.stringify(p.ref))})">✅ Mark Confirmed</button>`;
+      return `<div class="admin-payment-card">
+        <div class="admin-payment-row"><strong>${escapeHtml(p.name || '(no name)')}</strong>${statusHtml}</div>
+        <div class="admin-payment-row admin-hint"><span>${escapeHtml(p.email)}</span><span>${escapeHtml(planNames[p.plan] || p.plan)}</span></div>
+        <div class="admin-payment-row admin-hint"><span>Ref: <code>${escapeHtml(p.ref)}</code></span><span>${new Date(p.ts).toLocaleDateString()}</span></div>
+        <div class="admin-payment-code-row"><code class="admin-activation-code">${escapeHtml(code)}</code><button class="admin-copy-btn" onclick="adminCopyCode(${escapeHtml(JSON.stringify(code))})">Copy</button></div>
+        ${confirmBtn}
+      </div>`;
+    }).join('');
+  };
+
+  // Render local log immediately
+  const localLog = JSON.parse(localStorage.getItem('cipher_payment_log') || '[]');
+  _renderList(localLog);
+
+  // Fetch from server and merge (cross-device payments)
+  if (CONFIG.ADMIN_NOTIFY_URL) {
+    const serverPaymentsUrl = CONFIG.ADMIN_NOTIFY_URL.replace(/\/[^/]+$/, '') + '/data/payments.json';
+    fetch(serverPaymentsUrl + '?_=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(serverPayments => {
+        if (!Array.isArray(serverPayments)) return;
+        // Merge: server + local, de-duped by ref
+        const seen = new Set();
+        const merged = [...serverPayments, ...localLog].filter(p => {
+          if (seen.has(p.ref)) return false;
+          seen.add(p.ref);
+          return true;
+        });
+        _renderList(merged);
+        // Update local log with confirmed statuses from server
+        const updated = localLog.map(lp => {
+          const sp = serverPayments.find(s => s.ref === lp.ref);
+          return sp ? Object.assign({}, lp, { status: sp.status || lp.status }) : lp;
+        });
+        localStorage.setItem('cipher_payment_log', JSON.stringify(updated));
+      })
+      .catch(() => {}); // keep local view on error
+  }
 }
 
 /** Mark a payment as confirmed in the admin log. */
@@ -3460,27 +3512,63 @@ function adminCopyCode(code) {
 function renderAdminUsers() {
   const el = document.getElementById('admin-users-list');
   if (!el) return;
-  const accounts = getAccounts();
-  if (accounts.length === 0) {
-    el.innerHTML = '<p class="admin-hint">No registered accounts on this device.</p>';
-    return;
+
+  // Render local accounts immediately
+  const _render = (accounts) => {
+    if (accounts.length === 0) {
+      el.innerHTML = '<p class="admin-hint">No registered accounts found.</p>';
+      return;
+    }
+    el.innerHTML = accounts.map(a => `
+      <div class="admin-user-row">
+        <div class="admin-user-info">
+          <span class="admin-user-name">${escapeHtml(a.username)}</span>
+          <span class="admin-hint">${escapeHtml(a.email)}</span>
+          <span class="admin-hint">Since ${escapeHtml(a.memberSince || a.registeredAt || '—')}</span>
+        </div>
+        <button class="admin-delete-btn" onclick="adminDeleteUser(${escapeHtml(JSON.stringify(a.email))})" title="Remove account">🗑</button>
+      </div>`).join('');
+  };
+
+  const localAccounts = getAccounts();
+  _render(localAccounts);
+
+  // If server is configured, fetch remote users and merge (cross-device)
+  if (ADMIN_USERS_URL) {
+    const token = localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN_HASH;
+    fetch(`${ADMIN_USERS_URL}?token=${encodeURIComponent(token)}&_=${Date.now()}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.ok || !Array.isArray(data.users)) return;
+        // Merge: server list + local accounts, de-duped by email
+        const seen = new Set();
+        const merged = [...data.users, ...localAccounts].filter(a => {
+          const key = (a.email || '').toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        _render(merged);
+      })
+      .catch(() => {}); // keep local view on error
   }
-  el.innerHTML = accounts.map(a => `
-    <div class="admin-user-row">
-      <div class="admin-user-info">
-        <span class="admin-user-name">${escapeHtml(a.username)}</span>
-        <span class="admin-hint">${escapeHtml(a.email)}</span>
-        <span class="admin-hint">Since ${escapeHtml(a.memberSince || '—')}</span>
-      </div>
-      <button class="admin-delete-btn" onclick="adminDeleteUser(${escapeHtml(JSON.stringify(a.email))})" title="Remove account">🗑</button>
-    </div>`).join('');
 }
 
 /** Remove an account by email (security / bot cleanup). */
 function adminDeleteUser(email) {
   if (!confirm(`Remove account for ${escapeHtml(email)}?\nThis cannot be undone.`)) return;
+  // Remove locally
   const accounts = getAccounts().filter(a => a.email.toLowerCase() !== email.toLowerCase());
   localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+  // Remove from server
+  if (ADMIN_USERS_URL) {
+    const token = localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN_HASH;
+    fetch(ADMIN_USERS_URL, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
+      body: JSON.stringify({ email })
+    }).catch(() => {});
+  }
   renderAdminUsers();
   showToast('Account removed.', 'success', 2500);
 }
@@ -3604,18 +3692,202 @@ function renderAdminLog() {
     .join('\n');
 }
 
-function adminToggleMaintenance() {
+async function adminToggleMaintenance() {
   adminState.maintenanceMode = !adminState.maintenanceMode;
   localStorage.setItem(MAINT_KEY, adminState.maintenanceMode ? '1' : '0');
-  const banner = document.getElementById('maintenance-banner');
+
+  // Broadcast to other same-origin tabs immediately
+  try {
+    const bc = new BroadcastChannel('cipher_maint');
+    bc.postMessage({ maintenance: adminState.maintenanceMode, ts: Date.now() });
+    bc.close();
+  } catch (_) { /* BroadcastChannel not supported — graceful degradation */ }
+
   if (adminState.maintenanceMode) {
-    banner?.classList.remove('hidden');
-    showToast('🔧 Maintenance mode ON — users see maintenance banner.', 'info', 4000);
+    // Run diagnostic checks, log all results
+    const checkResults = await _runMaintenanceChecks();
+
+    // POST state + check log to server (so all devices see it)
+    _postMaintenanceState(adminState.maintenanceMode, checkResults);
+
+    document.getElementById('maintenance-banner')?.classList.remove('hidden');
+    showToast('🔧 Maintenance mode ON — running checks…', 'info', 4000);
   } else {
-    banner?.classList.add('hidden');
+    // Lift maintenance
+    _postMaintenanceState(false, []);
+    document.getElementById('maintenance-banner')?.classList.add('hidden');
+    document.getElementById('maintenance-overlay')?.classList.add('hidden');
     showToast('✅ Maintenance mode OFF — app is live.', 'success', 3000);
   }
   refreshAdminPanel();
+}
+
+/**
+ * Run a battery of diagnostic checks and log every result.
+ * Returns the check-log array for sending to the server.
+ */
+async function _runMaintenanceChecks() {
+  const ts = new Date().toISOString();
+  const results = [];
+
+  function logCheck(label, ok, detail) {
+    const msg = `[MAINT ${ts.slice(11, 19)}] ${ok ? '✅' : '❌'} ${label}${detail ? ' — ' + detail : ''}`;
+    _pushAdminLog(msg);
+    results.push({ msg, ok });
+  }
+
+  // 1. HTTPS / Secure context
+  const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  logCheck('HTTPS / Secure context', isSecure, location.protocol);
+
+  // 2. API key presence
+  const keyOk = !!(CONFIG.YOUTUBE_API_KEY && CONFIG.YOUTUBE_API_KEY.length >= 20);
+  logCheck('YouTube API key present', keyOk, keyOk ? CONFIG.YOUTUBE_API_KEY.slice(0,8)+'…' : 'missing or too short');
+
+  // 3. YouTube API reachability (live network call)
+  try {
+    const ctrl = new AbortController();
+    const tId = setTimeout(() => ctrl.abort(), 8000);
+    const signal = AbortSignal.timeout ? AbortSignal.timeout(8000) : ctrl.signal;
+    const r = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?part=id&type=video&q=cipher&maxResults=1&key=${CONFIG.YOUTUBE_API_KEY}`,
+      { signal }
+    );
+    clearTimeout(tId);
+    const body = await r.json().catch(() => ({}));
+    if (r.ok) {
+      adminState.quotaUsedToday += 100;
+      _saveQuota();
+      logCheck('YouTube API reachable', true, `HTTP ${r.status}`);
+    } else {
+      const reason = body?.error?.errors?.[0]?.reason || r.statusText;
+      logCheck('YouTube API reachable', false, `HTTP ${r.status}: ${reason}`);
+    }
+  } catch (e) {
+    logCheck('YouTube API reachable', false, e.message);
+  }
+
+  // 4. EmailJS config
+  const ejsOk = !!(CONFIG.EMAILJS_SERVICE_ID && CONFIG.EMAILJS_TEMPLATE_ID && CONFIG.EMAILJS_PUBLIC_KEY);
+  logCheck('EmailJS config present', ejsOk);
+
+  // 5. Service worker registration
+  const swOk = 'serviceWorker' in navigator;
+  const swReg = swOk ? await navigator.serviceWorker.getRegistration().catch(() => null) : null;
+  logCheck('Service worker registered', swOk && !!swReg, swReg ? swReg.scope : (swOk ? 'not registered' : 'not supported'));
+
+  // 6. App manifest
+  const manifestLink = document.querySelector('link[rel="manifest"]');
+  const manifestOk = !!manifestLink;
+  if (manifestOk) {
+    try {
+      const r = await fetch(manifestLink.href, { cache: 'no-store' });
+      logCheck('manifest.json fetchable', r.ok, `HTTP ${r.status}`);
+    } catch (e) {
+      logCheck('manifest.json fetchable', false, e.message);
+    }
+  } else {
+    logCheck('App manifest link found', false, 'no <link rel="manifest">');
+  }
+
+  // 7. localStorage availability & space
+  try {
+    localStorage.setItem('_maint_test', '1');
+    localStorage.removeItem('_maint_test');
+    logCheck('localStorage accessible', true);
+  } catch (e) {
+    logCheck('localStorage accessible', false, e.message);
+  }
+
+  // 8. Admin email configured
+  logCheck('Admin email set', !!CONFIG.ADMIN_EMAIL, CONFIG.ADMIN_EMAIL || 'not set');
+
+  // 9. Admin server endpoint
+  if (ADMIN_BASE_URL) {
+    try {
+      const r = await fetch(ADMIN_STATUS_URL, { cache: 'no-store' });
+      logCheck('Admin server reachable', r.ok, `HTTP ${r.status}`);
+    } catch (e) {
+      logCheck('Admin server reachable', false, e.message);
+    }
+  } else {
+    logCheck('Admin server endpoint', false, 'ADMIN_NOTIFY_URL not configured');
+  }
+
+  // Refresh log display
+  renderAdminLog();
+  return results;
+}
+
+/** POST maintenance state (and optional check log) to the server. */
+function _postMaintenanceState(on, log = []) {
+  if (!ADMIN_STATUS_URL) return;
+  const token = localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN_HASH;
+  fetch(ADMIN_STATUS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ maintenance: on, token, log })
+  }).catch(() => {}); // best-effort
+}
+
+/** Show full-screen maintenance overlay for non-admin users. */
+function _applyMaintenanceOverlay() {
+  document.getElementById('maintenance-banner')?.classList.remove('hidden');
+  document.getElementById('maintenance-overlay')?.classList.remove('hidden');
+}
+
+/** Remove maintenance overlay. */
+function _removeMaintenanceOverlay() {
+  document.getElementById('maintenance-banner')?.classList.add('hidden');
+  document.getElementById('maintenance-overlay')?.classList.add('hidden');
+}
+
+/** Poll the status endpoint every 30 s for cross-device maintenance changes. */
+function _startMaintenancePoller() {
+  // Listen for same-origin tab broadcasts
+  try {
+    const bc = new BroadcastChannel('cipher_maint');
+    bc.onmessage = (ev) => {
+      const on = !!ev.data?.maintenance;
+      if (on === adminState.maintenanceMode) return;
+      adminState.maintenanceMode = on;
+      localStorage.setItem(MAINT_KEY, on ? '1' : '0');
+      if (on && !adminState.isAdminSession) {
+        _applyMaintenanceOverlay();
+        setTimeout(() => location.reload(), 1500);
+      } else if (!on) {
+        _removeMaintenanceOverlay();
+      }
+    };
+  } catch (_) { /* not supported */ }
+
+  // Poll remote server (cross-device) if endpoint is configured
+  if (!ADMIN_STATUS_URL) return;
+  // Guard: only start one poller per page load
+  if (window._cipherMaintPollId) clearInterval(window._cipherMaintPollId);
+  let _lastMaintTs = 0;
+  async function _poll() {
+    try {
+      const r = await fetch(ADMIN_STATUS_URL + '?_=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const data = await r.json();
+      const on = !!data.maintenance;
+      const ts = data.ts || 0;
+      if (ts <= _lastMaintTs) return; // nothing new
+      _lastMaintTs = ts;
+      if (on === adminState.maintenanceMode) return; // no change
+      adminState.maintenanceMode = on;
+      localStorage.setItem(MAINT_KEY, on ? '1' : '0');
+      if (on && !adminState.isAdminSession) {
+        _applyMaintenanceOverlay();
+        setTimeout(() => location.reload(), 1500); // reload so users see fresh state
+      } else if (!on) {
+        _removeMaintenanceOverlay();
+        if (!adminState.isAdminSession) setTimeout(() => location.reload(), 800);
+      }
+    } catch (_) { /* network error — ignore */ }
+  }
+  window._cipherMaintPollId = setInterval(_poll, 30_000);
 }
 
 async function adminTestApiKey() {
