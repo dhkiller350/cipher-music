@@ -63,6 +63,16 @@ function adminLog(msg) {
   console.error('[CipherAdmin]', msg); // intentionally uses the original console.error
 }
 
+/** Escape user-supplied strings before inserting into innerHTML. */
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /** Return today's date string in US Pacific time (where YouTube resets quota). */
 function _pacificDateString() {
   try {
@@ -1703,6 +1713,18 @@ function generateActivationCode(plan, email, ref) {
     .toUpperCase().slice(0, 10);
 }
 
+/**
+ * Append a payment record to the persistent admin payment log.
+ * Duplicate refs are ignored so re-submits don't create extra entries.
+ */
+function _logPayment(pending) {
+  const log = JSON.parse(localStorage.getItem('cipher_payment_log') || '[]');
+  if (!log.some(p => p.ref === pending.ref)) {
+    log.push(Object.assign({}, pending, { status: 'pending', loggedAt: Date.now() }));
+    localStorage.setItem('cipher_payment_log', JSON.stringify(log));
+  }
+}
+
 function selectPlan(plan) {
   state.selectedPlan = plan;
 
@@ -2130,6 +2152,9 @@ function handlePayment(e) {
   const pending = { plan, email, name, ref, ts: Date.now() };
   localStorage.setItem('cipher_pending_payment', JSON.stringify(pending));
   savePlan('pending');
+
+  // Add to the admin payment log so the admin panel can display it
+  _logPayment(pending);
 
   // Notify admin by email (best-effort — failure does not block the user)
   sendAdminPaymentNotification(pending).catch(() => {});
@@ -3377,6 +3402,89 @@ function _assertAdminUser() {
   return false;
 }
 
+// ── Admin: Payments panel ─────────────────────────────────────────────────────
+
+/** Render all logged payment requests in the admin panel. */
+function renderAdminPayments() {
+  const el = document.getElementById('admin-payments-list');
+  if (!el) return;
+  const log = JSON.parse(localStorage.getItem('cipher_payment_log') || '[]');
+  if (log.length === 0) {
+    el.innerHTML = '<p class="admin-hint">No payment requests logged yet.</p>';
+    return;
+  }
+  const planNames = { pro: 'Pro Pack ($9.99/mo)', premium: 'Premium ($19.99/mo)' };
+  el.innerHTML = log.slice().reverse().map(p => {
+    const code = generateActivationCode(p.plan, p.email, p.ref);
+    const confirmed = p.status === 'confirmed';
+    const statusHtml = confirmed
+      ? '<span class="admin-pay-badge admin-pay-confirmed">✅ Confirmed</span>'
+      : '<span class="admin-pay-badge admin-pay-pending">⏳ Pending</span>';
+    const confirmBtn = confirmed ? '' :
+      `<button class="btn-outline admin-action-btn" onclick="adminConfirmPayment('${escapeHtml(p.ref)}')">✅ Mark Confirmed</button>`;
+    return `<div class="admin-payment-card">
+      <div class="admin-payment-row"><strong>${escapeHtml(p.name || '(no name)')}</strong>${statusHtml}</div>
+      <div class="admin-payment-row admin-hint"><span>${escapeHtml(p.email)}</span><span>${escapeHtml(planNames[p.plan] || p.plan)}</span></div>
+      <div class="admin-payment-row admin-hint"><span>Ref: <code>${escapeHtml(p.ref)}</code></span><span>${new Date(p.ts).toLocaleDateString()}</span></div>
+      <div class="admin-payment-code-row"><code class="admin-activation-code">${escapeHtml(code)}</code><button class="admin-copy-btn" onclick="adminCopyCode('${escapeHtml(code)}')">Copy</button></div>
+      ${confirmBtn}
+    </div>`;
+  }).join('');
+}
+
+/** Mark a payment as confirmed in the admin log. */
+function adminConfirmPayment(ref) {
+  const log = JSON.parse(localStorage.getItem('cipher_payment_log') || '[]');
+  const idx = log.findIndex(p => p.ref === ref);
+  if (idx < 0) return;
+  log[idx].status = 'confirmed';
+  localStorage.setItem('cipher_payment_log', JSON.stringify(log));
+  renderAdminPayments();
+  showToast('✅ Payment marked as confirmed.', 'success', 2500);
+}
+
+/** Copy an activation code to clipboard. */
+function adminCopyCode(code) {
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(code)
+      .then(() => showToast('📋 Activation code copied!', 'success', 2000))
+      .catch(() => showToast('Copy failed — code: ' + code, 'info', 6000));
+  } else {
+    showToast('Code: ' + code, 'info', 8000);
+  }
+}
+
+// ── Admin: Users panel ────────────────────────────────────────────────────────
+
+/** Render all registered accounts in the admin panel. */
+function renderAdminUsers() {
+  const el = document.getElementById('admin-users-list');
+  if (!el) return;
+  const accounts = getAccounts();
+  if (accounts.length === 0) {
+    el.innerHTML = '<p class="admin-hint">No registered accounts on this device.</p>';
+    return;
+  }
+  el.innerHTML = accounts.map(a => `
+    <div class="admin-user-row">
+      <div class="admin-user-info">
+        <span class="admin-user-name">${escapeHtml(a.username)}</span>
+        <span class="admin-hint">${escapeHtml(a.email)}</span>
+        <span class="admin-hint">Since ${escapeHtml(a.memberSince || '—')}</span>
+      </div>
+      <button class="admin-delete-btn" onclick="adminDeleteUser('${escapeHtml(a.email)}')" title="Remove account">🗑</button>
+    </div>`).join('');
+}
+
+/** Remove an account by email (security / bot cleanup). */
+function adminDeleteUser(email) {
+  if (!confirm(`Remove account for ${email}?\nThis cannot be undone.`)) return;
+  const accounts = getAccounts().filter(a => a.email.toLowerCase() !== email.toLowerCase());
+  localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+  renderAdminUsers();
+  showToast('Account removed.', 'success', 2500);
+}
+
 function initAdminPanel() {
   // Ctrl+Shift+D (desktop)
   document.addEventListener('keydown', e => {
@@ -3479,6 +3587,9 @@ function refreshAdminPanel() {
   if (mEl) mEl.checked = adminState.maintenanceMode;
   // Log
   renderAdminLog();
+  // Payments & Users
+  renderAdminPayments();
+  renderAdminUsers();
 }
 
 function renderAdminLog() {

@@ -3060,6 +3060,115 @@ body:not(.dark-mode) .liked-sort-select { background: #fff; color: #111133; }
   margin: 0;
 }
 
+/* ── Admin: payment cards ──────────────────────────────────── */
+.admin-payment-card {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(0,212,255,0.15);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  font-size: 0.83rem;
+}
+.admin-payment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  flex-wrap: wrap;
+}
+.admin-pay-badge {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.admin-pay-confirmed { background: rgba(0,212,100,0.18); color: #00e06e; }
+.admin-pay-pending   { background: rgba(255,200,0,0.15); color: #ffc800; }
+.admin-payment-code-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.admin-activation-code {
+  font-family: monospace;
+  font-size: 0.85rem;
+  background: rgba(0,0,0,0.3);
+  padding: 3px 8px;
+  border-radius: 4px;
+  color: #00d4ff;
+  letter-spacing: 0.08em;
+  flex: 1;
+  word-break: break-all;
+}
+.admin-copy-btn {
+  background: rgba(0,212,255,0.12);
+  border: 1px solid rgba(0,212,255,0.3);
+  color: #00d4ff;
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  min-height: 32px;
+}
+.admin-copy-btn:hover { background: rgba(0,212,255,0.22); }
+.admin-action-btn {
+  width: 100%;
+  margin-top: 8px;
+  font-size: 0.8rem;
+  padding: 7px;
+  min-height: 36px;
+}
+
+/* ── Admin: user rows ─────────────────────────────────────── */
+.admin-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.admin-user-row:last-child { border-bottom: none; }
+.admin-user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.admin-user-name {
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.admin-delete-btn {
+  background: rgba(255,68,68,0.12);
+  border: 1px solid rgba(255,68,68,0.3);
+  color: #ff6666;
+  font-size: 0.9rem;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  min-width: 36px;
+  min-height: 36px;
+}
+.admin-delete-btn:hover { background: rgba(255,68,68,0.25); }
+
+/* ── Mobile: improve admin touch targets ──────────────────── */
+@media (max-width: 480px) {
+  .admin-panel { width: 100vw; }
+  .admin-copy-btn, .admin-delete-btn, .admin-action-btn,
+  .admin-clear-log-btn { min-height: 40px; }
+}
+
 /* ── Improved search error state ─────────────────────────── */
 .search-error-state {
   display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 24px;

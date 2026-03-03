@@ -1288,6 +1288,18 @@
       <!-- Main panel sections (hidden until authenticated) -->
       <div id="admin-main-sections">
 
+        <!-- Payments -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">💰 Payments <button class="admin-clear-log-btn" onclick="renderAdminPayments()">Refresh</button></h4>
+          <div id="admin-payments-list"><p class="admin-hint">No payment requests logged yet.</p></div>
+        </section>
+
+        <!-- Registered Users -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">👥 Users <button class="admin-clear-log-btn" onclick="renderAdminUsers()">Refresh</button></h4>
+          <div id="admin-users-list"><p class="admin-hint">No registered accounts.</p></div>
+        </section>
+
         <!-- App Info -->
         <section class="admin-section">
           <h4 class="admin-section-title">App Info</h4>
