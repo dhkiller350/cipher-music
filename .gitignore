@@ -420,3 +420,7 @@ nohup.out
 
 # Admin payment data (sensitive - never commit actual payment records)
 admin/data/payments.json
+admin/data/users.json
+admin/data/access_log.json
+admin/data/banned.json
+admin/data/status.json

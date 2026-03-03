@@ -4197,7 +4197,7 @@ function _startMaintenancePoller() {
       }
     } catch (_) { /* network error — ignore */ }
   }
-  window._cipherMaintPollId = setInterval(_poll, 30_000);
+  window._cipherMaintPollId = setInterval(_poll, 15_000);
 }
 
 async function adminTestApiKey() {
