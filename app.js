@@ -3416,16 +3416,8 @@ async function submitAdminPin() {
 
   if (!pin) return;
 
-  const storedHash = localStorage.getItem(ADMIN_PIN_KEY);
-  let expectedHash;
-  if (storedHash) {
-    expectedHash = storedHash;
-  } else {
-    // No PIN has been set yet — the first time the panel is opened, the owner
-    // must set a PIN before they can use the panel.
-    showToast('No admin PIN set. Please set one via ?debug=1 first.', 'error', 5000);
-    return;
-  }
+  // Fall back to the default PIN hash if nothing is stored (e.g. fresh session or cleared storage).
+  const expectedHash = localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN_HASH;
 
   const enteredHash = await sha256Hex(pin);
   if (enteredHash !== expectedHash) {
