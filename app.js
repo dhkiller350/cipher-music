@@ -17,7 +17,7 @@ const CONFIG = {
   // frontend code (see https://stripe.com/docs/keys).  Rotate via Stripe Dashboard.
   STRIPE_PUBLISHABLE_KEY: 'pk_live_51T6lyV7TyEikNneRz4SWf4BTz1JfiCbMGscyXZ8L9WnaJ8cV38M3UBaM8lM5JnpkvcnzMZSETx5fHSDrgJKiSUsc00FIkvKuVS',
   // Your CashApp $cashtag — customers will send payment here.
-  CASHAPP_TAG: '$demosn505',
+  CASHAPP_TAG: '$CIPHERPREMIUM',
   // Stripe webhook endpoint — register this URL in the Stripe Dashboard
   // under Developers → Webhooks → Add endpoint.
   // Set the CIPHER_STRIPE_WEBHOOK_SECRET env var on your server to the
