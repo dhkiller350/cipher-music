@@ -198,7 +198,15 @@ a:hover { text-decoration: underline; }
   min-height: calc(100vh - var(--header-h));
   position: relative;
   transition: margin-left var(--transition);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,212,255,0.25) transparent;
 }
+
+#main-content::-webkit-scrollbar { width: 6px; }
+#main-content::-webkit-scrollbar-track { background: transparent; }
+#main-content::-webkit-scrollbar-thumb { background: rgba(0,212,255,0.25); border-radius: 3px; }
+#main-content::-webkit-scrollbar-thumb:hover { background: rgba(0,212,255,0.5); }
 
 /* When sidebar is hidden (login view), take full width */
 #sidebar.hidden ~ #main-content {
@@ -1254,9 +1262,17 @@ body:not(.dark-mode) .settings-group select option {
 .genre-chips {
   display: flex;
   gap: 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 8px;
   margin-bottom: 24px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,212,255,0.35) transparent;
 }
+
+.genre-chips::-webkit-scrollbar { height: 4px; }
+.genre-chips::-webkit-scrollbar-track { background: transparent; }
+.genre-chips::-webkit-scrollbar-thumb { background: rgba(0,212,255,0.35); border-radius: 2px; }
 
 .genre-chip {
   background: var(--bg-card);

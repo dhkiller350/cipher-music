@@ -393,6 +393,12 @@ function stopBgAudioKeepAlive() {
   }
 }
 
+function stopAllMusic() {
+  if (state.ytPlayer && state.ytReady) { state.ytPlayer.stopVideo(); }
+  stopBgAudioKeepAlive();
+  state.isPlaying = false;
+}
+
 // ── Media Session API ─────────────────────────────────────
 // Shows Now Playing info on the OS lock screen and enables
 // hardware media keys (headphones, lock-screen controls).
@@ -3418,6 +3424,7 @@ function bindEvents() {
 
   // ── Sign out ──
   $('#btn-signout')?.addEventListener('click', () => {
+    stopAllMusic();
     clearUser();
     updateHeaderUser();
     state.featuredLoaded = false;
@@ -3427,6 +3434,7 @@ function bindEvents() {
   // ── Delete account ──
   $('#btn-delete-account')?.addEventListener('click', () => {
     if (window.confirm('Are you sure you want to delete your account? This cannot be undone.')) {
+      stopAllMusic();
       // Remove from accounts array
       const accounts = getAccounts().filter(a => a.email !== state.user?.email);
       localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
