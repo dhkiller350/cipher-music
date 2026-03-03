@@ -7,12 +7,13 @@ A **PHP-based** admin panel for the owner/creator to manage payments, users, and
 | File | Description |
 |------|-------------|
 | `index.php` | PIN-protected dashboard — payments, users, logs, maintenance |
+| `admin.php` | **Terminal CLI** — all admin operations from VSCode / SSH |
 | `notify.php` | POST endpoint called by the app when a user submits payment |
 | `users.php` | User sync endpoint (POST = register, GET/DELETE = admin) |
 | `api.php` | REST API — users, payments, banned list, access log |
 | `access_log.php` | Access log endpoint (login/signup events from any device) |
 | `status.php` | Maintenance mode toggle API |
-| `maintenance.php` | CLI tool — toggle maintenance from Ubuntu terminal |
+| `maintenance.php` | Legacy maintenance toggle (use `admin.php` instead) |
 | `cors.php` | Shared CORS + IPv6 helper (included by all endpoints) |
 | `data/payments.json` | Payments database (created automatically) |
 | `data/users.json` | Users database (created automatically) |
@@ -38,7 +39,7 @@ sudo apt install php-cli
 
 Open your browser and go to:
 - **App**: http://localhost:8080
-- **Admin panel**: http://localhost:8080/admin/index.php
+- **Admin dashboard**: http://localhost:8080/admin/index.php
 
 In the **admin panel settings** (or app settings), set the Remote Server URL to:
 ```
@@ -48,21 +49,118 @@ http://localhost:8080/admin
 From now on, every login, signup, and payment on any device/browser that is
 pointed at your server will be logged and visible in the admin dashboard.
 
-### Terminal commands for maintenance mode
+---
+
+## Terminal CLI — All Commands
+
+Every admin task can be done from the terminal with `php admin/admin.php`:
 
 ```bash
-# Enable maintenance (from terminal)
-php admin/maintenance.php on
+# ── Overview ──────────────────────────────────────────────────────────────────
+php admin/admin.php status               # maintenance state + user/payment counts
 
-# Disable maintenance (from terminal)
-php admin/maintenance.php off
+# ── Maintenance mode ──────────────────────────────────────────────────────────
+php admin/admin.php maintenance on       # enable  — all connected devices update in ~15s
+php admin/admin.php maintenance off      # disable — all connected devices update in ~15s
 
-# Check current status
-php admin/maintenance.php status
+# ── Live monitor (watch incoming payments + logins as they happen) ─────────────
+php admin/admin.php watch                # poll every 3s, Ctrl+C to stop
+php admin/admin.php watch --interval=5  # poll every 5s
 
-# Also create/remove nginx flag file (requires sudo for /var/www)
-php admin/maintenance.php on  --nginx
-php admin/maintenance.php off --nginx
+# ── Users ─────────────────────────────────────────────────────────────────────
+php admin/admin.php users                # list all users
+php admin/admin.php users --limit=10    # show newest 10
+
+# ── Access log (logins / signups) ─────────────────────────────────────────────
+php admin/admin.php logs                 # show all recent events
+php admin/admin.php logs --limit=20     # show newest 20
+php admin/admin.php clear-logs          # wipe the access log
+
+# ── Payments ──────────────────────────────────────────────────────────────────
+php admin/admin.php payments             # list all payments (pending/confirmed/revoked)
+php admin/admin.php payments --limit=10 # show newest 10
+php admin/admin.php confirm PAY-ABCD1234  # approve a pending payment
+php admin/admin.php revoke  PAY-ABCD1234  # revoke a payment
+
+# ── Bans ──────────────────────────────────────────────────────────────────────
+php admin/admin.php ban   user@example.com   # ban + remove account
+php admin/admin.php unban user@example.com   # remove from ban list
+php admin/admin.php bans                      # list all banned emails
+```
+
+---
+
+## How It All Works
+
+### Seeing users and incoming payments through the terminal
+
+1. **Start the server** with `./start-server.sh` (or deploy to a VPS).
+2. Open a second terminal tab and run:
+   ```bash
+   php admin/admin.php watch
+   ```
+   This polls every 3 seconds and prints a line for each new payment or login/signup
+   as soon as it is written to the data files. You'll see output like:
+   ```
+   💰  NEW PAYMENT  [PENDING]  PRO  alice@example.com  ref=CPH-A1B2C3D4  2026-03-03T10:00:00+00:00
+      → confirm: php admin/admin.php confirm CPH-A1B2C3D4
+      → revoke : php admin/admin.php revoke  CPH-A1B2C3D4
+   🆕  SIGNUP  alice@example.com  username=alice  ip=1.2.3.4  2026-03-03T10:00:05+00:00
+      → ban: php admin/admin.php ban alice@example.com
+   🔓  LOGIN   alice@example.com  username=alice  ip=1.2.3.4  2026-03-03T10:01:00+00:00
+   ```
+
+3. To see everything at once (not live), use:
+   ```bash
+   php admin/admin.php status     # counts + maintenance state
+   php admin/admin.php users      # full user list
+   php admin/admin.php payments   # full payment list with status
+   php admin/admin.php logs       # full access log
+   ```
+
+### How account ban works
+
+When you run `php admin/admin.php ban user@example.com`:
+1. The user is **removed** from `data/users.json`
+2. Their email is **added** to `data/banned.json`
+3. Next time the app tries to log in or register that email, the server refuses it
+4. The app also downloads the banned list on startup and blocks the email client-side
+
+To reverse it: `php admin/admin.php unban user@example.com`
+
+### How payment confirm / revoke works
+
+When a user submits a payment screenshot in the app, the app POSTs to `notify.php`
+which writes a record to `data/payments.json` with `status=pending`.
+
+**To approve:**
+```bash
+php admin/admin.php confirm CPH-A1B2C3D4
+```
+This sets `status=confirmed` and `confirmed_at` timestamp.  The next time the app
+syncs with the server it will unlock the paid plan for that user.
+
+**To revoke:**
+```bash
+php admin/admin.php revoke CPH-A1B2C3D4
+```
+This sets `status=revoked` and `revoked_at` timestamp. The app will lock the plan.
+
+### Running everything over SSH (remote server)
+
+```bash
+# Check server status from your laptop
+ssh user@yourserver "php /var/www/cipher-music/admin/admin.php status"
+
+# Watch live traffic from your laptop
+ssh user@yourserver "php /var/www/cipher-music/admin/admin.php watch"
+
+# Approve a payment remotely
+ssh user@yourserver "php /var/www/cipher-music/admin/admin.php confirm CPH-A1B2C3D4"
+
+# Turn maintenance on/off remotely
+ssh user@yourserver "php /var/www/cipher-music/admin/admin.php maintenance on"
+ssh user@yourserver "php /var/www/cipher-music/admin/admin.php maintenance off"
 ```
 
 ---

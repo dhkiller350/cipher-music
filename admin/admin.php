@@ -25,17 +25,24 @@
  *   revoke  <payment-ref>        Revoke a payment (sets status=revoked)
  *   confirm <payment-ref>        Confirm a pending payment (sets status=confirmed)
  *
+ *   watch [--interval=N]         Live tail — prints new payments & access events as they arrive
+ *                                (default poll interval: 3 seconds, Ctrl+C to stop)
+ *
  *   clear-logs                   Clear the access log
  *
  * EXAMPLES
  *   php admin/admin.php status
  *   php admin/admin.php maintenance on
  *   php admin/admin.php logs --limit=20
+ *   php admin/admin.php payments
+ *   php admin/admin.php confirm PAY-ABCD1234
+ *   php admin/admin.php revoke  PAY-ABCD1234
  *   php admin/admin.php ban user@example.com
- *   php admin/admin.php revoke PAY-ABCD1234
+ *   php admin/admin.php watch
  *
  * TIP — run on a remote server over SSH:
  *   ssh user@yourserver "php /var/www/cipher-music/admin/admin.php status"
+ *   ssh user@yourserver "php /var/www/cipher-music/admin/admin.php watch"
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -81,7 +88,14 @@ function parse_limit(array $argv, int $default = 50): int {
     return $default;
 }
 
-// ── Parse command ─────────────────────────────────────────────────────────────
+function parse_interval(array $argv, int $default = 3): int {
+    foreach ($argv as $arg) {
+        if (preg_match('/^--interval=(\d+)$/', $arg, $m)) return max(1, (int)$m[1]);
+    }
+    return $default;
+}
+
+
 $cmd = strtolower(trim($argv[1] ?? ''));
 $arg = trim($argv[2] ?? '');
 
@@ -352,6 +366,65 @@ if ($cmd === 'clear-logs') {
     echo "✅ Access log cleared.\n";
     error_log("[Cipher] CLEAR-LOGS via CLI at " . date('c'));
     exit(0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// watch [--interval=N]
+// Live tail — prints new payments and access-log events as they arrive.
+// ─────────────────────────────────────────────────────────────────────────────
+if ($cmd === 'watch') {
+    $interval = parse_interval($argv);
+    hr('═');
+    echo "  👁  Cipher Music — Live Monitor  (Ctrl+C to stop, polling every {$interval}s)\n";
+    hr('═');
+
+    // Seed seen-set with whatever already exists so we only print NEW items.
+    $seenPayments = [];
+    foreach (read_json(PAYMENTS_FILE, []) as $p) {
+        $seenPayments[$p['ref'] ?? ''] = true;
+    }
+    $seenLogs = [];
+    foreach (read_json(ACCESS_LOG_FILE, []) as $l) {
+        $seenLogs[($l['email'] ?? '') . ($l['ts'] ?? '') . ($l['event'] ?? '')] = true;
+    }
+
+    while (true) {
+        // ── new payments ──────────────────────────────────────────────────────
+        foreach (read_json(PAYMENTS_FILE, []) as $p) {
+            $ref = $p['ref'] ?? '';
+            if ($ref && !isset($seenPayments[$ref])) {
+                $seenPayments[$ref] = true;
+                $stat = strtoupper($p['status'] ?? 'PENDING');
+                $plan = strtoupper($p['plan']   ?? '?');
+                $em   = $p['email']       ?? '—';
+                $recv = $p['received_at'] ?? date('c');
+                $icon = $stat === 'CONFIRMED' ? '✅' : ($stat === 'REVOKED' ? '🚫' : '💰');
+                echo "$icon  NEW PAYMENT  [$stat]  $plan  $em  ref=$ref  $recv\n";
+                echo "   → confirm: php admin/admin.php confirm $ref\n";
+                echo "   → revoke : php admin/admin.php revoke  $ref\n";
+            }
+        }
+
+        // ── new access-log events ─────────────────────────────────────────────
+        foreach (read_json(ACCESS_LOG_FILE, []) as $l) {
+            $key = ($l['email'] ?? '') . ($l['ts'] ?? '') . ($l['event'] ?? '');
+            if ($key && !isset($seenLogs[$key])) {
+                $seenLogs[$key] = true;
+                $ev  = strtoupper($l['event'] ?? '?');
+                $em  = $l['email']    ?? '—';
+                $usr = $l['username'] ?? '—';
+                $ip  = $l['ip']       ?? '—';
+                $t   = $l['logged_at'] ?? date('c');
+                $icon = match($ev) { 'SIGNUP' => '🆕', 'LOGIN' => '🔓', 'LOGOUT' => '🔒', default => '📋' };
+                echo "$icon  $ev  $em  username=$usr  ip=$ip  $t\n";
+                if ($ev === 'SIGNUP') {
+                    echo "   → ban: php admin/admin.php ban $em\n";
+                }
+            }
+        }
+
+        sleep($interval);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
