@@ -789,9 +789,9 @@
               </div>
             </div>
 
-            <!-- Step 1 — enter details then redirect to Stripe -->
+            <!-- Step 1 — enter details and card, then pay inline -->
             <form id="payment-form" novalidate>
-              <h4 class="payment-confirm-title">Step 1 — Enter Your Details</h4>
+              <h4 class="payment-confirm-title">Enter Your Details &amp; Card</h4>
               <div class="form-group">
                 <label for="pay-name">Your Name</label>
                 <input type="text" id="pay-name" placeholder="Jane Doe" autocomplete="name" />
@@ -802,13 +802,18 @@
                 <input type="email" id="pay-email" placeholder="you@example.com" autocomplete="email" />
                 <span class="field-error" id="err-pay-email"></span>
               </div>
-              <button type="submit" class="btn-primary btn-full">Continue to Stripe →</button>
+              <div class="form-group">
+                <label>Card Details</label>
+                <div id="stripe-card-element" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:12px 10px;"></div>
+                <span class="field-error" id="err-stripe-card"></span>
+              </div>
+              <button type="submit" class="btn-primary btn-full">Pay Now →</button>
             </form>
 
             <!-- Activation code entry (step 2 — shown after Stripe payment) -->
             <div id="payment-activation-section" class="hidden">
-              <h4 class="payment-confirm-title">Step 2 — Enter Your Activation Code</h4>
-              <p class="cashapp-note">After your Stripe payment is confirmed, we'll email you a 10-character activation code. Enter it below to unlock your plan.</p>
+              <h4 class="payment-confirm-title">Enter Your Activation Code</h4>
+              <p class="cashapp-note">Your activation code has been emailed to you. Enter it below to unlock your plan instantly.</p>
               <div class="form-group">
                 <label for="activation-code-input">Activation Code</label>
                 <input type="text" id="activation-code-input" placeholder="e.g. A1B2C3D4E5" maxlength="10"
@@ -1386,6 +1391,7 @@
     </div>
   </div>
 
+  <script src="https://js.stripe.com/v3/"></script>
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <script src="app.js"></script>
   <!-- YouTube IFrame API -->

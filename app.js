@@ -13,10 +13,15 @@ const CONFIG = {
   // Admin payment server URL — set to your PHP host once deployed.
   // Leave empty ('') to disable the server-side notification.
   ADMIN_NOTIFY_URL:    '',
-  // Stripe Payment Links — replace with your actual Stripe Payment Link URLs.
-  // Create them at https://dashboard.stripe.com/payment-links
-  STRIPE_PAYMENT_LINK_PRO:     'https://buy.stripe.com/your_pro_link',
-  STRIPE_PAYMENT_LINK_PREMIUM: 'https://buy.stripe.com/your_premium_link'
+  // Stripe publishable key — intentionally public; designed to be included in
+  // frontend code (see https://stripe.com/docs/keys).  Rotate via Stripe Dashboard.
+  STRIPE_PUBLISHABLE_KEY: 'pk_live_51T6lyV7TyEikNneRz4SWf4BTz1JfiCbMGscyXZ8L9WnaJ8cV38M3UBaM8lM5JnpkvcnzMZSETx5fHSDrgJKiSUsc00FIkvKuVS',
+  // EmailJS template used to send the activation code to the CUSTOMER.
+  // Create a template in your EmailJS dashboard that accepts:
+  //   to_email, to_name, activation_code, payment_plan, payment_ref
+  // Set EMAILJS_CUSTOMER_TEMPLATE_ID to that template's ID.
+  // If left empty the admin template is re-used (sends to customer's address).
+  EMAILJS_CUSTOMER_TEMPLATE_ID: ''
 };
 
 // Admin server base URL — runtime-configurable.
@@ -1984,6 +1989,9 @@ function selectPlan(plan) {
   form?.classList.remove('hidden');
   section?.classList.remove('hidden');
   section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Mount Stripe Card Element (idempotent — skip if already mounted)
+  _mountStripeCard();
 }
 
 function validatePayment() {
@@ -2361,7 +2369,42 @@ function handleInstallApp() {
   triggerInstallPrompt();
 }
 
-function handlePayment(e) {
+// ── Stripe Elements helpers ─────────────────────────────────
+let _stripeInstance = null;
+let _stripeCard     = null;
+let _stripeCardMounted = false;
+
+function _mountStripeCard() {
+  const mountEl = document.getElementById('stripe-card-element');
+  if (!mountEl || _stripeCardMounted) return;
+  if (typeof Stripe === 'undefined') {
+    console.warn('[Cipher] Stripe.js not loaded');
+    return;
+  }
+  if (!_stripeInstance) {
+    _stripeInstance = Stripe(CONFIG.STRIPE_PUBLISHABLE_KEY);
+  }
+  const elements = _stripeInstance.elements();
+  _stripeCard = elements.create('card', {
+    style: {
+      base: {
+        color: '#e0e0e0',
+        fontFamily: 'inherit',
+        fontSize: '15px',
+        '::placeholder': { color: '#888' }
+      },
+      invalid: { color: '#ff4444' }
+    }
+  });
+  _stripeCard.mount(mountEl);
+  _stripeCard.on('change', event => {
+    const errEl = document.getElementById('err-stripe-card');
+    if (errEl) errEl.textContent = event.error ? event.error.message : '';
+  });
+  _stripeCardMounted = true;
+}
+
+async function handlePayment(e) {
   e.preventDefault();
   if (!validatePayment()) return;
 
@@ -2370,31 +2413,73 @@ function handlePayment(e) {
   const name  = $('#pay-name')?.value.trim() || '';
   const ref   = state.paymentRef || generatePaymentRef();
 
-  // Store the pending payment — plan is NOT activated yet
-  const pending = { plan, email, name, ref, ts: Date.now() };
-  localStorage.setItem('cipher_pending_payment', JSON.stringify(pending));
-  savePlan('pending');
+  // Disable submit button while processing
+  const submitBtn = $('#payment-form button[type=submit]');
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Processing…'; }
 
-  // Add to the admin payment log so the admin panel can display it
-  _logPayment(pending);
+  try {
+    // Tokenize card via Stripe.js (no server needed for this step)
+    let paymentMethodId = null;
+    if (_stripeInstance && _stripeCard) {
+      const { paymentMethod, error } = await _stripeInstance.createPaymentMethod({
+        type: 'card',
+        card: _stripeCard,
+        billing_details: { name, email }
+      });
+      if (error) {
+        const errEl = $('#err-stripe-card');
+        if (errEl) errEl.textContent = error.message;
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Pay Now →'; }
+        return;
+      }
+      paymentMethodId = paymentMethod.id;
+    }
 
-  // Notify admin by email (best-effort — failure does not block the user)
-  sendAdminPaymentNotification(pending).catch(() => {});
+    // Store the pending payment
+    const pending = { plan, email, name, ref, paymentMethodId, ts: Date.now() };
+    localStorage.setItem('cipher_pending_payment', JSON.stringify(pending));
+    savePlan('pending');
+    _logPayment(pending);
 
-  // Open the Stripe checkout page in a new tab
-  const stripeLinks = {
-    pro:     CONFIG.STRIPE_PAYMENT_LINK_PRO,
-    premium: CONFIG.STRIPE_PAYMENT_LINK_PREMIUM
-  };
-  const stripeUrl = stripeLinks[plan];
-  if (stripeUrl && !stripeUrl.includes('your_pro_link') && !stripeUrl.includes('your_premium_link')) {
-    window.open(stripeUrl, '_blank', 'noopener,noreferrer');
+    // Automatically email the activation code to the customer (best-effort)
+    sendCustomerActivationEmail(pending).catch(() => {});
+
+    // Also notify the admin (best-effort)
+    sendAdminPaymentNotification(pending).catch(() => {});
+
+    // Show activation section
+    $('#payment-form')?.classList.add('hidden');
+    $('#payment-activation-section')?.classList.remove('hidden');
+    showToast('✅ Card saved! Check your email for the activation code.', 'success', 6000);
+  } catch (err) {
+    console.error('[Cipher] Payment error:', err);
+    showToast('Payment error — please try again.', 'error', 5000);
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Pay Now →'; }
   }
+}
 
-  // Show the activation-code entry form (hide the send-payment form)
-  $('#payment-form')?.classList.add('hidden');
-  $('#payment-activation-section')?.classList.remove('hidden');
-  showToast('Complete your Stripe payment, then enter your activation code below.', 'info', 6000);
+/**
+ * Email the activation code directly to the customer.
+ * Uses EMAILJS_CUSTOMER_TEMPLATE_ID when set, falling back to the
+ * default template with the customer's address as to_email.
+ */
+async function sendCustomerActivationEmail(pending) {
+  if (!isEmailJSConfigured()) return;
+  try {
+    if (typeof emailjs === 'undefined') throw new Error('EmailJS not loaded');
+    emailjs.init(CONFIG.EMAILJS_PUBLIC_KEY);
+    const planNames = { pro: 'Pro Pack ($9.99/mo)', premium: 'Premium ($19.99/mo)' };
+    const templateId = CONFIG.EMAILJS_CUSTOMER_TEMPLATE_ID || CONFIG.EMAILJS_TEMPLATE_ID;
+    await emailjs.send(CONFIG.EMAILJS_SERVICE_ID, templateId, {
+      to_email:        pending.email,
+      to_name:         pending.name || 'Cipher Member',
+      activation_code: generateActivationCode(pending.plan, pending.email, pending.ref),
+      payment_plan:    planNames[pending.plan] || pending.plan,
+      payment_ref:     pending.ref
+    });
+  } catch (err) {
+    console.warn('[Cipher] Customer activation email failed:', err.message);
+  }
 }
 
 /**
