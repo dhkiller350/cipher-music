@@ -40,6 +40,7 @@ $PAYMENTS_FILE   = __DIR__ . '/data/payments.json';
 $USERS_FILE      = __DIR__ . '/data/users.json';
 $BANNED_FILE     = __DIR__ . '/data/banned.json';
 $ACCESS_LOG_FILE = __DIR__ . '/data/access_log.json';
+$STRIPE_EVENTS_FILE = __DIR__ . '/data/stripe_events.json';
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 $token = trim($_SERVER['HTTP_X_ADMIN_TOKEN'] ?? $_GET['token'] ?? '');
@@ -217,5 +218,33 @@ if ($resource === 'access_log') {
     respond(['ok' => false, 'error' => 'Method not allowed'], 405);
 }
 
+// ────────────────────────────────────────────────────────── STRIPE EVENTS
+if ($resource === 'stripe_events') {
+    if ($method === 'GET') {
+        if (!file_exists($STRIPE_EVENTS_FILE)) respond(['ok' => true, 'events' => [], 'total' => 0]);
+        $events = json_decode(file_get_contents($STRIPE_EVENTS_FILE) ?: '[]', true) ?: [];
+        $limit  = max(1, min(1000, (int)($_GET['limit'] ?? 200)));
+        $events = array_reverse($events); // newest first
+        if (count($events) > $limit) $events = array_slice($events, 0, $limit);
+        respond(['ok' => true, 'events' => $events, 'total' => count($events)]);
+    }
+
+    if ($method === 'DELETE') {
+        // Clear the entire Stripe event log atomically
+        $fh = fopen($STRIPE_EVENTS_FILE, 'c+');
+        if ($fh) {
+            flock($fh, LOCK_EX);
+            ftruncate($fh, 0);
+            rewind($fh);
+            fwrite($fh, '[]');
+            flock($fh, LOCK_UN);
+            fclose($fh);
+        }
+        respond(['ok' => true, 'message' => 'Stripe event log cleared.']);
+    }
+
+    respond(['ok' => false, 'error' => 'Method not allowed'], 405);
+}
+
 // Unknown resource
-respond(['ok' => false, 'error' => 'Unknown resource. Valid: users, payments, status, banned, access_log'], 404);
+respond(['ok' => false, 'error' => 'Unknown resource. Valid: users, payments, status, banned, access_log, stripe_events'], 404);
