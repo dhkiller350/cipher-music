@@ -2001,6 +2001,12 @@ function selectPlan(plan) {
     tagEl.href = 'https://cash.app/' + CONFIG.CASHAPP_TAG +
                  '/' + (planAmounts[plan] || '');
   }
+  // Update the example note with the user's real ref and email
+  const noteExEl = $('#cashapp-note-example');
+  if (noteExEl) {
+    const userEmail = state.user?.email || 'your@email.com';
+    noteExEl.textContent = state.paymentRef + ' · ' + userEmail;
+  }
 
   // Reset to Stripe by default
   const stripeRadio = $('#method-stripe');
