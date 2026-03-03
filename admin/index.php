@@ -162,11 +162,27 @@ if ($authed && $_SERVER['REQUEST_METHOD'] === 'POST') {
         save_payments($PAYMENTS_FILE, $payments);
         $message = "Payment {$ref} removed.";
     }
+
+    // Revoke a payment
+    if (!empty($_POST['action']) && $_POST['action'] === 'revoke') {
+        $ref = trim($_POST['ref'] ?? '');
+        foreach ($payments as &$p) {
+            if ($p['ref'] === $ref) {
+                $p['status']     = 'revoked';
+                $p['revoked_at'] = date('c');
+                $message = "Payment {$ref} revoked — activation code disabled.";
+                break;
+            }
+        }
+        unset($p);
+        save_payments($PAYMENTS_FILE, $payments);
+    }
 }
 
 $payments = $authed ? load_payments($PAYMENTS_FILE) : [];
 $pending   = array_filter($payments, fn($p) => ($p['status'] ?? 'pending') === 'pending');
 $confirmed = array_filter($payments, fn($p) => ($p['status'] ?? '') === 'confirmed');
+$revoked   = array_filter($payments, fn($p) => ($p['status'] ?? '') === 'revoked');
 
 ?><!DOCTYPE html>
 <html lang="en">
@@ -204,6 +220,8 @@ $confirmed = array_filter($payments, fn($p) => ($p['status'] ?? '') === 'confirm
     .btn-accent { background: linear-gradient(135deg,var(--purple),var(--accent)); color: #fff; }
     .btn-danger { background: var(--danger); color: #fff; padding: 6px 12px; width: auto; font-size: 0.8rem; border-radius: 4px; }
     .btn-success { background: var(--success); color: #fff; padding: 6px 12px; width: auto; font-size: 0.8rem; border-radius: 4px; }
+    .btn-warn   { background: #ff6b00; color: #fff; padding: 6px 12px; width: auto; font-size: 0.8rem; border-radius: 4px; }
+    .badge-revoked { background: rgba(255,68,68,0.18); color: #ff6b6b; }
     .error { color: var(--danger); font-size: 0.85rem; margin-top: 8px; }
 
     /* ── Dashboard layout ──────────────────────── */
@@ -339,6 +357,12 @@ $confirmed = array_filter($payments, fn($p) => ($p['status'] ?? '') === 'confirm
               <button type="submit" class="btn btn-success">✓ Confirm</button>
             </form>
             <form method="post" style="display:inline"
+                  onsubmit="return confirm('Revoke this payment? The activation code will stop working.')">
+              <input type="hidden" name="action" value="revoke">
+              <input type="hidden" name="ref" value="<?= h($p['ref'] ?? '') ?>">
+              <button type="submit" class="btn btn-warn">🚫 Revoke</button>
+            </form>
+            <form method="post" style="display:inline"
                   onsubmit="return confirm('Remove this payment record?')">
               <input type="hidden" name="action" value="delete">
               <input type="hidden" name="ref" value="<?= h($p['ref'] ?? '') ?>">
@@ -390,6 +414,55 @@ $confirmed = array_filter($payments, fn($p) => ($p['status'] ?? '') === 'confirm
         <td>
           <form method="post" style="display:inline"
                 onsubmit="return confirm('Delete this confirmed record?')">
+            <input type="hidden" name="action" value="delete">
+            <input type="hidden" name="ref" value="<?= h($p['ref'] ?? '') ?>">
+            <button type="submit" class="btn btn-danger">✕</button>
+          </form>
+          <form method="post" style="display:inline"
+                onsubmit="return confirm('Revoke this payment? Activation code will stop working.')">
+            <input type="hidden" name="action" value="revoke">
+            <input type="hidden" name="ref" value="<?= h($p['ref'] ?? '') ?>">
+            <button type="submit" class="btn btn-warn">🚫</button>
+          </form>
+        </td>
+      </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
+  <?php endif; ?>
+
+  <!-- Revoked payments ──────────────────────────────────── -->
+  <?php if (!empty($revoked)): ?>
+  <p class="section-head" style="margin-top:32px;color:#ff6b6b">🚫 Revoked</p>
+  <table class="payment-table">
+    <thead>
+      <tr>
+        <th>Reference</th>
+        <th>Customer</th>
+        <th>Plan</th>
+        <th>Revoked</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    <?php foreach ($revoked as $p): ?>
+      <tr style="opacity:0.7">
+        <td data-label="Ref"><span class="code-chip"><?= h($p['ref'] ?? '') ?></span></td>
+        <td data-label="Customer">
+          <?= h($p['name'] ?? '—') ?><br>
+          <small style="color:var(--text2)"><?= h($p['email'] ?? '—') ?></small>
+        </td>
+        <td data-label="Plan">
+          <span class="badge badge-<?= h(strtolower($p['plan'] ?? 'pro')) ?>">
+            <?= h(ucfirst($p['plan'] ?? 'pro')) ?>
+          </span>
+        </td>
+        <td data-label="Revoked">
+          <?= !empty($p['revoked_at']) ? date('M j, Y g:ia', strtotime($p['revoked_at'])) : '—' ?>
+        </td>
+        <td>
+          <form method="post" style="display:inline"
+                onsubmit="return confirm('Delete this revoked record?')">
             <input type="hidden" name="action" value="delete">
             <input type="hidden" name="ref" value="<?= h($p['ref'] ?? '') ?>">
             <button type="submit" class="btn btn-danger">✕</button>

@@ -80,6 +80,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
     $email = strtolower(trim($data['email'] ?? ''));
     $users = array_values(array_filter(load_users($USERS_FILE), fn($u) => strtolower($u['email'] ?? '') !== $email));
     save_users($USERS_FILE, $users);
+
+    // Also add to banned list so the front-end can sync
+    $bannedFile = __DIR__ . '/data/banned.json';
+    $banned = file_exists($bannedFile) ? (json_decode(file_get_contents($bannedFile) ?: '[]', true) ?: []) : [];
+    if ($email && !in_array($email, $banned, true)) {
+        $banned[] = $email;
+        $dir = dirname($bannedFile);
+        if (!is_dir($dir)) mkdir($dir, 0700, true);
+        file_put_contents($bannedFile, json_encode($banned, JSON_PRETTY_PRINT));
+    }
+
     echo json_encode(['ok' => true]);
     exit;
 }

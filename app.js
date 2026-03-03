@@ -511,6 +511,15 @@ function loadUser() {
   if (stored) {
     try { state.user = JSON.parse(stored); } catch { /* ignore */ }
   }
+  // If the currently signed-in user's email was banned, sign them out and show banned view
+  if (state.user) {
+    const banned = JSON.parse(localStorage.getItem('cipher_banned_emails') || '[]');
+    if (banned.some(e => e.toLowerCase() === state.user.email.toLowerCase())) {
+      clearUser();
+      showBannedView();
+      return;
+    }
+  }
 }
 
 function saveUser(user) {
@@ -521,6 +530,21 @@ function saveUser(user) {
 function clearUser() {
   state.user = null;
   localStorage.removeItem('cipher_user');
+}
+
+/** Show the "Account Deleted / Banned" full-screen view with a countdown redirect. */
+function showBannedView() {
+  showView('banned');
+  let secs = 10;
+  const el = document.getElementById('banned-countdown-secs');
+  const timer = setInterval(() => {
+    secs--;
+    if (el) el.textContent = secs;
+    if (secs <= 0) {
+      clearInterval(timer);
+      showView('login');
+    }
+  }, 1000);
 }
 
 function updateHeaderUser() {
@@ -594,8 +618,13 @@ function validateSignup() {
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email ?? '');
   setErr('err-su-email', !emailOk ? 'Please enter a valid email address.' : '');
 
-  if (emailOk && findAccount(email ?? '')) {
-    setErr('err-su-email', 'An account with this email already exists. Sign in instead.');
+  if (emailOk) {
+    const banned = JSON.parse(localStorage.getItem('cipher_banned_emails') || '[]');
+    if (banned.some(b => b.toLowerCase() === (email ?? '').toLowerCase())) {
+      setErr('err-su-email', 'Account not created — this email has been banned.');
+    } else if (findAccount(email ?? '')) {
+      setErr('err-su-email', 'An account with this email already exists. Sign in instead.');
+    }
   }
 
   setErr('err-su-password', (password?.length ?? 0) < 8 ? 'Password must be at least 8 characters.' : '');
@@ -818,10 +847,26 @@ async function handleLogin(e) {
   const emailOrUser = $('#login-email').value.trim();
   const password    = $('#login-password').value;
 
+  // Check if this email/username belongs to a banned account
+  const banned = JSON.parse(localStorage.getItem('cipher_banned_emails') || '[]');
+  const matchBanned = banned.some(b => b.toLowerCase() === emailOrUser.toLowerCase());
+  if (matchBanned) {
+    const el = $('#err-login-email');
+    if (el) el.textContent = 'Account not created — either banned or disconnected.';
+    return;
+  }
+
   const account = findAccount(emailOrUser);
   if (!account) {
     const el = $('#err-login-email');
     if (el) el.textContent = 'No account found with that email or username.';
+    return;
+  }
+
+  // Also check by the found account's email
+  if (banned.some(b => b.toLowerCase() === account.email.toLowerCase())) {
+    const el = $('#err-login-email');
+    if (el) el.textContent = 'Account not created — either banned or disconnected.';
     return;
   }
 
@@ -857,7 +902,7 @@ function showView(viewName) {
   if (target) target.classList.add('active');
 
   const sidebar = $('#sidebar');
-  const noSidebar = ['login', 'signup', 'verify', 'forgot', 'reset'].includes(viewName);
+  const noSidebar = ['login', 'signup', 'verify', 'forgot', 'reset', 'banned'].includes(viewName);
 
   if (noSidebar) {
     sidebar.classList.add('hidden');
@@ -970,6 +1015,125 @@ function onPlayerStateChange(event) {
 function setSoundwavePlaying(playing) {
   const sw = $('#np-soundwave');
   if (sw) sw.classList.toggle('paused', !playing);
+  if (!playing) stopBeatSyncWaveform();
+}
+
+// ═══════════════════════════════════════════════════════════
+// BEAT-SYNC WAVEFORM
+// ═══════════════════════════════════════════════════════════
+let _beatRafId = null;
+let _beatPhase = 0;
+
+function startBeatSyncWaveform() {
+  if (_beatRafId) return; // already running
+  const sw = $('#np-soundwave');
+  if (!sw) return;
+  sw.classList.add('beat-sync');
+  const bars = Array.from(sw.querySelectorAll('span'));
+  const NUM = bars.length || 15;
+
+  // Sine-based pseudo-random beat pattern (fast with accent every ~0.5s)
+  function tick() {
+    _beatPhase += 0.06;
+    bars.forEach((bar, i) => {
+      // Stagger phase per bar to get a wave effect
+      const phase = _beatPhase + i * 0.42;
+      // Multi-frequency: base (slow sway) + beat accent (fast bounce)
+      const base   = 0.5 + 0.5 * Math.sin(phase * 1.3);
+      const beat   = 0.5 + 0.5 * Math.abs(Math.sin(phase * 3.7 + i * 0.9));
+      const noise  = 0.5 + 0.5 * Math.sin(phase * 7.1 + i * 1.7);
+      const h = Math.round(3 + base * 8 + beat * 9 + noise * 4); // 3–24 px
+      bar.style.height = h + 'px';
+    });
+    _beatRafId = requestAnimationFrame(tick);
+  }
+  _beatRafId = requestAnimationFrame(tick);
+}
+
+function stopBeatSyncWaveform() {
+  if (_beatRafId) { cancelAnimationFrame(_beatRafId); _beatRafId = null; }
+  const sw = $('#np-soundwave');
+  if (sw) {
+    sw.classList.remove('beat-sync');
+    sw.querySelectorAll('span').forEach(bar => bar.style.height = '');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// LYRICS
+// ═══════════════════════════════════════════════════════════
+let _lyricsVisible = false;
+
+function initLyricsToggle() {
+  const btn = document.getElementById('btn-toggle-lyrics');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    _lyricsVisible = !_lyricsVisible;
+    const body = document.getElementById('np-lyrics-body');
+    if (body) body.classList.toggle('lyrics-expanded', _lyricsVisible);
+    btn.classList.toggle('active', _lyricsVisible);
+    btn.textContent = _lyricsVisible ? 'Hide' : 'Lyrics';
+  });
+}
+
+/**
+ * Parse a YouTube video title into likely song title + artist.
+ * Handles "Artist - Title", "Title by Artist", "Title (feat. X)" patterns.
+ */
+function _parseSongTitle(ytTitle) {
+  let title = ytTitle.replace(/\(Official.*?\)/gi, '').replace(/\[.*?\]/gi, '').trim();
+  let artist = '';
+  const dashMatch = title.match(/^(.+?)\s*[-–—]\s*(.+)$/);
+  if (dashMatch) {
+    artist = dashMatch[1].trim();
+    title  = dashMatch[2].trim();
+  }
+  // Strip trailing parenthetical noise
+  title = title.replace(/\s*\(.*?\)\s*$/g, '').trim();
+  return { title, artist };
+}
+
+/**
+ * Fetch lyrics from lrclib.net (free, no API key required).
+ * Falls back to a simple "Audio playing" message if unavailable.
+ */
+async function fetchLyricsForTrack(ytTitle, channelTitle) {
+  const contentEl = document.getElementById('np-lyrics-content');
+  if (!contentEl) return;
+  contentEl.textContent = '♩ Loading lyrics…';
+  contentEl.className = 'np-lyrics-loading';
+
+  const { title, artist } = _parseSongTitle(ytTitle);
+  const artistQuery = artist || channelTitle || '';
+
+  try {
+    // lrclib.net: https://lrclib.net/api/search?q=artist+title
+    const query = encodeURIComponent(`${artistQuery} ${title}`.trim());
+    const res = await fetch(`https://lrclib.net/api/search?q=${query}`, {
+      signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined
+    });
+    if (!res.ok) throw new Error('API error');
+    const results = await res.json();
+    const match = results?.[0];
+    if (match?.plainLyrics) {
+      // Show first ~8 lines in collapsed view, full in expanded
+      const lines = match.plainLyrics.split('\n').filter(l => l.trim()).slice(0, 50);
+      contentEl.textContent = lines.slice(0, 8).join('\n');
+      contentEl.dataset.fullLyrics = lines.join('\n');
+      contentEl.className = '';
+      // Update expanded view if already open
+      const body = document.getElementById('np-lyrics-body');
+      if (body?.classList.contains('lyrics-expanded')) {
+        contentEl.textContent = lines.join('\n');
+      }
+    } else {
+      contentEl.textContent = 'No lyrics found for this track.';
+      contentEl.className = 'np-lyrics-loading';
+    }
+  } catch (_) {
+    contentEl.textContent = 'Audio is playing — enjoy the music';
+    contentEl.className = '';
+  }
 }
 
 function playVideo(index) {
@@ -1044,6 +1208,10 @@ function updateNowPlayingPanel(item) {
 
   if (panel) panel.classList.remove('hidden');
   setSoundwavePlaying(true);
+  startBeatSyncWaveform();
+
+  // Fetch lyrics for this track
+  fetchLyricsForTrack(titleTxt, ch);
 }
 
 function updateNowPlaying(item) {
@@ -2246,6 +2414,13 @@ function handleActivationCode() {
   const pending = JSON.parse(localStorage.getItem('cipher_pending_payment') || 'null');
   if (!pending) { showToast('No pending payment found. Please start over.', 'error'); return; }
 
+  // Check if this payment ref has been revoked by the admin
+  const revokedRefs = JSON.parse(localStorage.getItem('cipher_revoked_refs') || '[]');
+  if (revokedRefs.includes(pending.ref)) {
+    setFieldError('err-activation-code', 'This payment has been revoked. Please contact support.');
+    return;
+  }
+
   const entered = ($('#activation-code-input')?.value || '').trim().toUpperCase();
   const expected = generateActivationCode(pending.plan, pending.email, pending.ref);
 
@@ -3209,6 +3384,9 @@ function bindEvents() {
   // ── Share song ──
   $('#btn-share-song')?.addEventListener('click', shareCurrentSong);
 
+  // ── Lyrics toggle ──
+  initLyricsToggle();
+
   // ── NP panel: Add to queue ──
   $('#btn-add-to-queue-np')?.addEventListener('click', () => {
     if (state.currentIndex >= 0 && state.searchResults[state.currentIndex]) {
@@ -3454,18 +3632,23 @@ function renderAdminPayments() {
     }
     el.innerHTML = log.slice().reverse().map(p => {
       const code = generateActivationCode(p.plan, p.email, p.ref);
+      const revoked   = p.status === 'revoked';
       const confirmed = p.status === 'confirmed';
-      const statusHtml = confirmed
-        ? '<span class="admin-pay-badge admin-pay-confirmed">✅ Confirmed</span>'
-        : '<span class="admin-pay-badge admin-pay-pending">⏳ Pending</span>';
-      const confirmBtn = confirmed ? '' :
+      const statusHtml = revoked
+        ? '<span class="admin-pay-badge admin-pay-revoked">🚫 Revoked</span>'
+        : confirmed
+          ? '<span class="admin-pay-badge admin-pay-confirmed">✅ Confirmed</span>'
+          : '<span class="admin-pay-badge admin-pay-pending">⏳ Pending</span>';
+      const confirmBtn = (confirmed || revoked) ? '' :
         `<button class="btn-outline admin-action-btn" onclick="adminConfirmPayment(${escapeHtml(JSON.stringify(p.ref))})">✅ Mark Confirmed</button>`;
-      return `<div class="admin-payment-card">
+      const revokeBtn = revoked ? '' :
+        `<button class="btn-outline admin-action-btn admin-revoke-btn" onclick="adminRevokePayment(${escapeHtml(JSON.stringify(p.ref))})">🚫 Revoke</button>`;
+      return `<div class="admin-payment-card${revoked ? ' admin-payment-revoked' : ''}">
         <div class="admin-payment-row"><strong>${escapeHtml(p.name || '(no name)')}</strong>${statusHtml}</div>
         <div class="admin-payment-row admin-hint"><span>${escapeHtml(p.email)}</span><span>${escapeHtml(planNames[p.plan] || p.plan)}</span></div>
         <div class="admin-payment-row admin-hint"><span>Ref: <code>${escapeHtml(p.ref)}</code></span><span>${new Date(p.ts).toLocaleDateString()}</span></div>
         <div class="admin-payment-code-row"><code class="admin-activation-code">${escapeHtml(code)}</code><button class="admin-copy-btn" onclick="adminCopyCode(${escapeHtml(JSON.stringify(code))})">Copy</button></div>
-        ${confirmBtn}
+        <div class="admin-payment-actions">${confirmBtn}${revokeBtn}</div>
       </div>`;
     }).join('');
   };
@@ -3511,6 +3694,25 @@ function adminConfirmPayment(ref) {
   showToast('✅ Payment marked as confirmed.', 'success', 2500);
 }
 
+/** Revoke a payment — the activation code will be rejected at next use. */
+function adminRevokePayment(ref) {
+  if (!confirm(`Revoke payment ${ref}?\nThe activation code will stop working.`)) return;
+  const log = JSON.parse(localStorage.getItem('cipher_payment_log') || '[]');
+  const idx = log.findIndex(p => p.ref === ref);
+  if (idx >= 0) {
+    log[idx].status = 'revoked';
+    localStorage.setItem('cipher_payment_log', JSON.stringify(log));
+  }
+  // Store in a separate fast-lookup set for activation code checks
+  const revoked = JSON.parse(localStorage.getItem('cipher_revoked_refs') || '[]');
+  if (!revoked.includes(ref)) {
+    revoked.push(ref);
+    localStorage.setItem('cipher_revoked_refs', JSON.stringify(revoked));
+  }
+  renderAdminPayments();
+  showToast('🚫 Payment revoked — activation code disabled.', 'info', 3000);
+}
+
 /** Copy an activation code to clipboard. */
 function adminCopyCode(code) {
   if (navigator.clipboard?.writeText) {
@@ -3529,21 +3731,38 @@ function renderAdminUsers() {
   const el = document.getElementById('admin-users-list');
   if (!el) return;
 
+  // Sync remote banned list into localStorage (if server configured)
+  if (ADMIN_BASE_URL) {
+    const token = localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN_HASH;
+    fetch(`${ADMIN_BASE_URL}/api.php?resource=banned&token=${encodeURIComponent(token)}&_=${Date.now()}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.ok && Array.isArray(data.banned)) {
+          const existing = JSON.parse(localStorage.getItem('cipher_banned_emails') || '[]');
+          const merged = [...new Set([...existing, ...data.banned].map(e => e.toLowerCase()))];
+          localStorage.setItem('cipher_banned_emails', JSON.stringify(merged));
+        }
+      }).catch(() => {});
+  }
+
   // Render local accounts immediately
   const _render = (accounts) => {
+    const banned = JSON.parse(localStorage.getItem('cipher_banned_emails') || '[]');
     if (accounts.length === 0) {
       el.innerHTML = '<p class="admin-hint">No registered accounts found.</p>';
       return;
     }
-    el.innerHTML = accounts.map(a => `
-      <div class="admin-user-row">
+    el.innerHTML = accounts.map(a => {
+      const isBanned = banned.some(b => b === a.email?.toLowerCase());
+      return `<div class="admin-user-row${isBanned ? ' admin-user-banned' : ''}">
         <div class="admin-user-info">
-          <span class="admin-user-name">${escapeHtml(a.username)}</span>
+          <span class="admin-user-name">${escapeHtml(a.username)}${isBanned ? ' <span class="admin-banned-tag">BANNED</span>' : ''}</span>
           <span class="admin-hint">${escapeHtml(a.email)}</span>
           <span class="admin-hint">Since ${escapeHtml(a.memberSince || a.registeredAt || '—')}</span>
         </div>
-        <button class="admin-delete-btn" onclick="adminDeleteUser(${escapeHtml(JSON.stringify(a.email))})" title="Remove account">🗑</button>
-      </div>`).join('');
+        <button class="admin-delete-btn" onclick="adminDeleteUser(${escapeHtml(JSON.stringify(a.email))})" title="Ban &amp; remove account">🗑</button>
+      </div>`;
+    }).join('');
   };
 
   const localAccounts = getAccounts();
@@ -3572,10 +3791,20 @@ function renderAdminUsers() {
 
 /** Remove an account by email (security / bot cleanup). */
 function adminDeleteUser(email) {
-  if (!confirm(`Remove account for ${escapeHtml(email)}?\nThis cannot be undone.`)) return;
+  if (!confirm(`Remove account for ${email}?\nThis will ban the email and cannot be undone.`)) return;
+  // Add to banned list
+  const banned = JSON.parse(localStorage.getItem('cipher_banned_emails') || '[]');
+  if (!banned.some(b => b.toLowerCase() === email.toLowerCase())) {
+    banned.push(email.toLowerCase());
+    localStorage.setItem('cipher_banned_emails', JSON.stringify(banned));
+  }
   // Remove locally
   const accounts = getAccounts().filter(a => a.email.toLowerCase() !== email.toLowerCase());
   localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+  // If the currently signed-in user was the one deleted, sign them out
+  if (state.user?.email?.toLowerCase() === email.toLowerCase()) {
+    clearUser();
+  }
   // Remove from server
   if (ADMIN_USERS_URL) {
     const token = localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN_HASH;
@@ -3586,7 +3815,7 @@ function adminDeleteUser(email) {
     }).catch(() => {});
   }
   renderAdminUsers();
-  showToast('Account removed.', 'success', 2500);
+  showToast('Account banned and removed.', 'success', 2500);
 }
 
 function initAdminPanel() {

@@ -3154,6 +3154,12 @@ body:not(.dark-mode) .liked-sort-select { background: #fff; color: #111133; }
 }
 .admin-pay-confirmed { background: rgba(0,212,100,0.18); color: #00e06e; }
 .admin-pay-pending   { background: rgba(255,200,0,0.15); color: #ffc800; }
+.admin-pay-revoked   { background: rgba(255,68,68,0.18); color: #ff6b6b; }
+.admin-payment-revoked { opacity: 0.65; }
+.admin-payment-revoked .admin-activation-code { text-decoration: line-through; opacity: 0.5; }
+.admin-payment-actions { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.admin-revoke-btn { border-color: rgba(255,68,68,0.45); color: #ff6b6b; }
+.admin-revoke-btn:hover { background: rgba(255,68,68,0.15); }
 .admin-payment-code-row {
   display: flex;
   align-items: center;
@@ -3229,6 +3235,21 @@ body:not(.dark-mode) .liked-sort-select { background: #fff; color: #111133; }
   min-height: 36px;
 }
 .admin-delete-btn:hover { background: rgba(255,68,68,0.25); }
+
+/* Banned user row */
+.admin-user-banned { opacity: 0.7; }
+.admin-banned-tag {
+  display: inline-block;
+  background: rgba(255,68,68,0.2);
+  color: #ff6b6b;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
 
 /* ── Mobile: improve admin touch targets ──────────────────── */
 @media (max-width: 480px) {
