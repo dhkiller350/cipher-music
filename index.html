@@ -781,49 +781,34 @@
             <h3 class="payment-title">Complete Your Subscription</h3>
             <p class="payment-selected-plan" id="selected-plan-label">Pro Pack — $9.99/mo</p>
 
-            <!-- Payment reference — user MUST include this in their payment note -->
-            <div class="pay-ref-box">
-              <p class="pay-ref-label">📌 Your Payment Reference (include in note/memo):</p>
-              <p id="pay-ref-code" class="pay-ref-code">—</p>
-            </div>
-
             <!-- How to pay -->
             <div class="payment-methods">
-              <div class="payment-method-card cashapp-method">
-                <p class="payment-method-title">💵 Pay via CashApp</p>
-                <a class="cashapp-tag" href="https://cash.app/$CIPHERPREMIUM" target="_blank" rel="noopener">$CIPHERPREMIUM</a>
-                <p id="pay-cashapp-note-hint" class="cashapp-note">Send the exact plan amount and include your reference in the note.</p>
+              <div class="payment-method-card stripe-method">
+                <p class="payment-method-title">💳 Pay via Stripe</p>
+                <p class="cashapp-note">Secure checkout powered by Stripe. After payment, you'll receive an activation code by email to unlock your plan.</p>
               </div>
             </div>
 
-            <!-- Confirm payment (step 1) -->
+            <!-- Step 1 — enter details then redirect to Stripe -->
             <form id="payment-form" novalidate>
-              <h4 class="payment-confirm-title">Step 1 — Confirm You've Sent Payment</h4>
+              <h4 class="payment-confirm-title">Step 1 — Enter Your Details</h4>
               <div class="form-group">
                 <label for="pay-name">Your Name</label>
                 <input type="text" id="pay-name" placeholder="Jane Doe" autocomplete="name" />
                 <span class="field-error" id="err-pay-name"></span>
               </div>
               <div class="form-group">
-                <label for="pay-email">Your Email</label>
+                <label for="pay-email">Your Email (activation code will be sent here)</label>
                 <input type="email" id="pay-email" placeholder="you@example.com" autocomplete="email" />
                 <span class="field-error" id="err-pay-email"></span>
               </div>
-              <div class="form-group pay-confirm-check">
-                <label class="check-label">
-                  <input type="checkbox" id="pay-confirm" />
-                  <span>I have sent payment with the reference above</span>
-                </label>
-                <span class="field-error" id="err-pay-confirm"></span>
-              </div>
-              <button type="submit" class="btn-primary btn-full">I've Sent Payment →</button>
+              <button type="submit" class="btn-primary btn-full">Continue to Stripe →</button>
             </form>
 
-            <!-- Activation code entry (step 2 — shown after step 1) -->
+            <!-- Activation code entry (step 2 — shown after Stripe payment) -->
             <div id="payment-activation-section" class="hidden">
               <h4 class="payment-confirm-title">Step 2 — Enter Your Activation Code</h4>
-              <p class="cashapp-note">After we verify your payment, we'll email you a 10-character activation code. Enter it below to unlock your plan.</p>
-              <p class="cashapp-note pay-ref-reminder">Your reference: <strong id="activation-ref-display">—</strong></p>
+              <p class="cashapp-note">After your Stripe payment is confirmed, we'll email you a 10-character activation code. Enter it below to unlock your plan.</p>
               <div class="form-group">
                 <label for="activation-code-input">Activation Code</label>
                 <input type="text" id="activation-code-input" placeholder="e.g. A1B2C3D4E5" maxlength="10"
@@ -1347,22 +1332,6 @@
         <section class="admin-section">
           <h4 class="admin-section-title">👥 Users <button class="admin-clear-log-btn" onclick="renderAdminUsers()">Refresh</button></h4>
           <div id="admin-users-list"><p class="admin-hint">No registered accounts.</p></div>
-        </section>
-
-        <!-- Remote Server -->
-        <section class="admin-section">
-          <h4 class="admin-section-title">🌐 Remote Server</h4>
-          <p class="admin-hint" style="margin-bottom:8px">Connect to a local PHP server (e.g. <code>http://127.0.0.1:8080/admin</code>) to sync payments, users and maintenance state across devices.</p>
-          <div id="admin-server-status" class="admin-hint" style="margin-bottom:8px;font-size:0.78rem">❌ Not configured</div>
-          <div class="form-group" style="margin-bottom:6px">
-            <input type="url" id="admin-server-url-input" placeholder="http://127.0.0.1:8080/admin"
-                   style="width:100%;padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#e0e0e0;font-size:0.82rem"
-                   onkeydown="if(event.key==='Enter')adminSaveServerUrl()" />
-          </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn-primary" style="flex:1;font-size:0.82rem;padding:7px" onclick="adminSaveServerUrl()">💾 Save</button>
-            <button class="btn-ghost" style="flex:1;font-size:0.82rem;padding:7px" onclick="adminClearServerUrl()">✕ Clear</button>
-          </div>
         </section>
 
         <!-- App Info -->

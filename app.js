@@ -12,7 +12,11 @@ const CONFIG = {
   ADMIN_EMAIL:         'demosn505@gmail.com',
   // Admin payment server URL — set to your PHP host once deployed.
   // Leave empty ('') to disable the server-side notification.
-  ADMIN_NOTIFY_URL:    ''
+  ADMIN_NOTIFY_URL:    '',
+  // Stripe Payment Links — replace with your actual Stripe Payment Link URLs.
+  // Create them at https://dashboard.stripe.com/payment-links
+  STRIPE_PAYMENT_LINK_PRO:     'https://buy.stripe.com/your_pro_link',
+  STRIPE_PAYMENT_LINK_PREMIUM: 'https://buy.stripe.com/your_premium_link'
 };
 
 // Admin server base URL — runtime-configurable.
@@ -1975,15 +1979,6 @@ function selectPlan(plan) {
   const planNames = { pro: 'Pro Pack — $9.99/mo', premium: 'Premium — $19.99/mo' };
   if (planLabel) planLabel.textContent = planNames[plan] || plan;
 
-  // Generate a fresh payment reference for this attempt
-  const ref = generatePaymentRef();
-  state.paymentRef = ref;
-  const refDisplay = $('#pay-ref-code');
-  if (refDisplay) refDisplay.textContent = ref;
-  // Pre-fill the CashApp hint text with the unique reference
-  const cashAppNoteHint = $('#pay-cashapp-note-hint');
-  if (cashAppNoteHint) cashAppNoteHint.textContent = `Include "${ref}" in your CashApp note`;
-
   success?.classList.add('hidden');
   activationSection?.classList.add('hidden');
   form?.classList.remove('hidden');
@@ -1994,7 +1989,6 @@ function selectPlan(plan) {
 function validatePayment() {
   const name  = $('#pay-name')?.value.trim();
   const email = $('#pay-email')?.value.trim();
-  const conf  = $('#pay-confirm')?.checked;
 
   let valid = true;
   const setErr = (id, msg) => {
@@ -2003,9 +1997,8 @@ function validatePayment() {
     if (msg) valid = false;
   };
 
-  setErr('err-pay-name',    (name?.length ?? 0) < 2   ? 'Please enter your name.'        : '');
-  setErr('err-pay-email',   !/^[^@]+@[^@]+\.[^@]+$/.test(email ?? '') ? 'Please enter a valid email.' : '');
-  setErr('err-pay-confirm', !conf ? 'Please confirm you have sent your payment.' : '');
+  setErr('err-pay-name',  (name?.length ?? 0) < 2   ? 'Please enter your name.'        : '');
+  setErr('err-pay-email', !/^[^@]+@[^@]+\.[^@]+$/.test(email ?? '') ? 'Please enter a valid email.' : '');
   return valid;
 }
 
@@ -2038,8 +2031,6 @@ function loadPlan() {
       const activationSection = $('#payment-activation-section');
       if (activationSection) {
         activationSection.classList.remove('hidden');
-        const dispRef = $('#activation-ref-display');
-        if (dispRef) dispRef.textContent = pending.ref;
       }
       section?.classList.remove('hidden');
     }
@@ -2390,12 +2381,20 @@ function handlePayment(e) {
   // Notify admin by email (best-effort — failure does not block the user)
   sendAdminPaymentNotification(pending).catch(() => {});
 
+  // Open the Stripe checkout page in a new tab
+  const stripeLinks = {
+    pro:     CONFIG.STRIPE_PAYMENT_LINK_PRO,
+    premium: CONFIG.STRIPE_PAYMENT_LINK_PREMIUM
+  };
+  const stripeUrl = stripeLinks[plan];
+  if (stripeUrl && !stripeUrl.includes('your_pro_link') && !stripeUrl.includes('your_premium_link')) {
+    window.open(stripeUrl, '_blank', 'noopener,noreferrer');
+  }
+
   // Show the activation-code entry form (hide the send-payment form)
   $('#payment-form')?.classList.add('hidden');
   $('#payment-activation-section')?.classList.remove('hidden');
-  const dispRef = $('#activation-ref-display');
-  if (dispRef) dispRef.textContent = ref;
-  showToast('Payment submitted! Enter your activation code to unlock your plan.', 'info', 5000);
+  showToast('Complete your Stripe payment, then enter your activation code below.', 'info', 6000);
 }
 
 /**
@@ -3967,22 +3966,6 @@ function refreshAdminPanel() {
   // Maintenance toggle
   const mEl = document.getElementById('admin-maint-toggle');
   if (mEl) mEl.checked = adminState.maintenanceMode;
-  // Remote server URL — only update the input when user is not actively typing
-  const serverInp = document.getElementById('admin-server-url-input');
-  if (serverInp && !serverInp.matches(':focus')) {
-    serverInp.value = localStorage.getItem('cipher_admin_server_url') || '';
-    serverInp.placeholder = ADMIN_BASE_URL ? ADMIN_BASE_URL : 'http://127.0.0.1:8080/admin';
-  }
-  const serverStatus = document.getElementById('admin-server-status');
-  if (serverStatus) {
-    if (ADMIN_BASE_URL) {
-      serverStatus.textContent = '✅ ' + ADMIN_BASE_URL;
-      serverStatus.style.color = '#00c853';
-    } else {
-      serverStatus.textContent = '❌ Not configured — enter URL above';
-      serverStatus.style.color = '#ff4444';
-    }
-  }
   // Log
   renderAdminLog();
   // Payments & Users
@@ -4267,39 +4250,6 @@ async function adminSetInitialPin() {
   }
   refreshAdminPanel();
   showToast('✅ Admin PIN set! Panel unlocked.', 'success');
-}
-
-/**
- * Save the admin remote server base URL (e.g. http://127.0.0.1:8080/admin).
- * Called from the admin panel "Remote Server" section.
- */
-function adminSaveServerUrl() {
-  const inp = document.getElementById('admin-server-url-input');
-  let url = (inp?.value || '').trim().replace(/\/+$/, '');
-  if (!url) { showToast('Enter a URL first.', 'error'); return; }
-  // Validate URL and explicitly check protocol (prevent javascript:, data:, etc.)
-  let parsed;
-  try { parsed = new URL(url); } catch (_) { showToast('Invalid URL — include http:// or https://', 'error'); return; }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    showToast('URL must start with http:// or https://', 'error'); return;
-  }
-  localStorage.setItem('cipher_admin_server_url', url);
-  _refreshAdminUrls();
-  // Restart poller with new URL
-  if (window._cipherMaintPollId) { clearInterval(window._cipherMaintPollId); window._cipherMaintPollId = null; }
-  _startMaintenancePoller();
-  showToast('✅ Remote server saved: ' + url, 'success', 3000);
-  refreshAdminPanel();
-}
-
-/** Clear the stored admin server URL (falls back to built-in CONFIG value). */
-function adminClearServerUrl() {
-  localStorage.removeItem('cipher_admin_server_url');
-  _refreshAdminUrls();
-  if (window._cipherMaintPollId) { clearInterval(window._cipherMaintPollId); window._cipherMaintPollId = null; }
-  _startMaintenancePoller();
-  showToast('Remote server URL cleared.', 'info', 2500);
-  refreshAdminPanel();
 }
 
 // ═══════════════════════════════════════════════════════════
