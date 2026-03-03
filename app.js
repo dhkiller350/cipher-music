@@ -16,12 +16,8 @@ const CONFIG = {
   // Stripe publishable key — intentionally public; designed to be included in
   // frontend code (see https://stripe.com/docs/keys).  Rotate via Stripe Dashboard.
   STRIPE_PUBLISHABLE_KEY: 'pk_live_51T6lyV7TyEikNneRz4SWf4BTz1JfiCbMGscyXZ8L9WnaJ8cV38M3UBaM8lM5JnpkvcnzMZSETx5fHSDrgJKiSUsc00FIkvKuVS',
-  // EmailJS template used to send the activation code to the CUSTOMER.
-  // Create a template in your EmailJS dashboard that accepts:
-  //   to_email, to_name, activation_code, payment_plan, payment_ref
-  // Set EMAILJS_CUSTOMER_TEMPLATE_ID to that template's ID.
-  // If left empty the admin template is re-used (sends to customer's address).
-  EMAILJS_CUSTOMER_TEMPLATE_ID: ''
+  // Your CashApp $cashtag — customers will send payment here.
+  CASHAPP_TAG: '$demosn505'
 };
 
 // Admin server base URL — runtime-configurable.
@@ -1981,8 +1977,28 @@ function selectPlan(plan) {
     return;
   }
 
-  const planNames = { pro: 'Pro Pack — $9.99/mo', premium: 'Premium — $19.99/mo' };
+  const planNames   = { pro: 'Pro Pack — $9.99/mo', premium: 'Premium — $19.99/mo' };
+  const planAmounts = { pro: '9.99', premium: '19.99' };
   if (planLabel) planLabel.textContent = planNames[plan] || plan;
+
+  // Generate a fresh payment ref for this selection
+  state.paymentRef = generatePaymentRef();
+
+  // Populate CashApp block with ref + amount
+  const refEl  = $('#cashapp-ref-value');
+  const amtEl  = $('#cashapp-amount-value');
+  const tagEl  = $('#cashapp-tag-link');
+  if (refEl) refEl.textContent = state.paymentRef;
+  if (amtEl) amtEl.textContent = '$' + (planAmounts[plan] || '');
+  if (tagEl) {
+    tagEl.textContent = CONFIG.CASHAPP_TAG;
+    tagEl.href = 'https://cash.app/' + CONFIG.CASHAPP_TAG +
+                 '/' + (planAmounts[plan] || '');
+  }
+
+  // Reset to Stripe by default
+  const stripeRadio = $('#method-stripe');
+  if (stripeRadio) { stripeRadio.checked = true; _updatePaymentMethod('stripe'); }
 
   success?.classList.add('hidden');
   activationSection?.classList.add('hidden');
@@ -1992,6 +2008,16 @@ function selectPlan(plan) {
 
   // Mount Stripe Card Element (idempotent — skip if already mounted)
   _mountStripeCard();
+}
+
+/** Show/hide Stripe card vs CashApp instruction block based on selected method. */
+function _updatePaymentMethod(method) {
+  const cardBlock = $('#stripe-card-block');
+  const cashBlock = $('#cashapp-payment-block');
+  const submitBtn = $('#payment-submit-btn');
+  if (cardBlock) cardBlock.classList.toggle('hidden', method !== 'stripe');
+  if (cashBlock) cashBlock.classList.toggle('hidden', method !== 'cashapp');
+  if (submitBtn) submitBtn.textContent = method === 'cashapp' ? "I've Sent Payment →" : 'Pay with Card →';
 }
 
 function validatePayment() {
@@ -2408,77 +2434,59 @@ async function handlePayment(e) {
   e.preventDefault();
   if (!validatePayment()) return;
 
-  const plan  = state.selectedPlan || 'pro';
-  const email = $('#pay-email')?.value.trim() || '';
-  const name  = $('#pay-name')?.value.trim() || '';
-  const ref   = state.paymentRef || generatePaymentRef();
+  const plan   = state.selectedPlan || 'pro';
+  const email  = $('#pay-email')?.value.trim() || '';
+  const name   = $('#pay-name')?.value.trim() || '';
+  const ref    = state.paymentRef || generatePaymentRef();
+  const method = $('input[name="pay-method"]:checked')?.value || 'stripe';
 
-  // Disable submit button while processing
-  const submitBtn = $('#payment-form button[type=submit]');
+  const submitBtn = $('#payment-submit-btn');
   if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Processing…'; }
 
   try {
-    // Tokenize card via Stripe.js (no server needed for this step)
     let paymentMethodId = null;
-    if (_stripeInstance && _stripeCard) {
-      const { paymentMethod, error } = await _stripeInstance.createPaymentMethod({
-        type: 'card',
-        card: _stripeCard,
-        billing_details: { name, email }
-      });
-      if (error) {
-        const errEl = $('#err-stripe-card');
-        if (errEl) errEl.textContent = error.message;
-        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Pay Now →'; }
-        return;
+
+    if (method === 'stripe') {
+      // Tokenize card via Stripe.js
+      if (_stripeInstance && _stripeCard) {
+        const { paymentMethod, error } = await _stripeInstance.createPaymentMethod({
+          type: 'card',
+          card: _stripeCard,
+          billing_details: { name, email }
+        });
+        if (error) {
+          const errEl = $('#err-stripe-card');
+          if (errEl) errEl.textContent = error.message;
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Pay with Card →'; }
+          return;
+        }
+        paymentMethodId = paymentMethod.id;
       }
-      paymentMethodId = paymentMethod.id;
     }
 
     // Store the pending payment
-    const pending = { plan, email, name, ref, paymentMethodId, ts: Date.now() };
+    const pending = { plan, email, name, ref, method, paymentMethodId, ts: Date.now() };
     localStorage.setItem('cipher_pending_payment', JSON.stringify(pending));
     savePlan('pending');
     _logPayment(pending);
 
-    // Automatically email the activation code to the customer (best-effort)
-    sendCustomerActivationEmail(pending).catch(() => {});
-
-    // Also notify the admin (best-effort)
+    // Notify admin (best-effort — no customer auto-email; owner sends code manually)
     sendAdminPaymentNotification(pending).catch(() => {});
 
     // Show activation section
     $('#payment-form')?.classList.add('hidden');
     $('#payment-activation-section')?.classList.remove('hidden');
-    showToast('✅ Card saved! Check your email for the activation code.', 'success', 6000);
+    const msg = method === 'cashapp'
+      ? '✅ Payment noted! The owner will email your activation code shortly.'
+      : '✅ Card saved! The owner will email your activation code shortly.';
+    showToast(msg, 'success', 7000);
   } catch (err) {
     console.error('[Cipher] Payment error:', err);
     showToast('Payment error — please try again.', 'error', 5000);
-    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Pay Now →'; }
-  }
-}
-
-/**
- * Email the activation code directly to the customer.
- * Uses EMAILJS_CUSTOMER_TEMPLATE_ID when set, falling back to the
- * default template with the customer's address as to_email.
- */
-async function sendCustomerActivationEmail(pending) {
-  if (!isEmailJSConfigured()) return;
-  try {
-    if (typeof emailjs === 'undefined') throw new Error('EmailJS not loaded');
-    emailjs.init(CONFIG.EMAILJS_PUBLIC_KEY);
-    const planNames = { pro: 'Pro Pack ($9.99/mo)', premium: 'Premium ($19.99/mo)' };
-    const templateId = CONFIG.EMAILJS_CUSTOMER_TEMPLATE_ID || CONFIG.EMAILJS_TEMPLATE_ID;
-    await emailjs.send(CONFIG.EMAILJS_SERVICE_ID, templateId, {
-      to_email:        pending.email,
-      to_name:         pending.name || 'Cipher Member',
-      activation_code: generateActivationCode(pending.plan, pending.email, pending.ref),
-      payment_plan:    planNames[pending.plan] || pending.plan,
-      payment_ref:     pending.ref
-    });
-  } catch (err) {
-    console.warn('[Cipher] Customer activation email failed:', err.message);
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = method === 'cashapp' ? "I've Sent Payment →" : 'Pay with Card →';
+    }
   }
 }
 
@@ -3269,6 +3277,10 @@ function bindEvents() {
   // ── Payment form ──
   $('#payment-form')?.addEventListener('submit', handlePayment);
   $('#btn-activate-plan')?.addEventListener('click', handleActivationCode);
+  // Wire up payment method radio buttons
+  $$('input[name="pay-method"]').forEach(radio => {
+    radio.addEventListener('change', () => _updatePaymentMethod(radio.value));
+  });
 
   // ── Gated settings: intercept clicks on locked rows ──
   document.addEventListener('click', e => {

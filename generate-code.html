@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cipher — Owner Activation Code Generator</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0d0d14;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #1a1a2e;
+      border: 1px solid rgba(0,212,255,0.2);
+      border-radius: 12px;
+      padding: 32px;
+      width: 100%;
+      max-width: 460px;
+    }
+    h1 { font-size: 1.3rem; color: #00d4ff; margin: 0 0 6px; }
+    .subtitle { font-size: 0.78rem; color: #888; margin: 0 0 28px; }
+    label { display: block; font-size: 0.82rem; color: #aaa; margin-bottom: 5px; }
+    select, input[type=text], input[type=email] {
+      width: 100%;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: #e0e0e0;
+      font-size: 0.95rem;
+      margin-bottom: 18px;
+      outline: none;
+    }
+    select:focus, input:focus { border-color: #00d4ff; }
+    select option { background: #1a1a2e; }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #00d4ff, #0088ff);
+      border: none;
+      border-radius: 8px;
+      color: #000;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:hover { opacity: 0.9; }
+    #result {
+      display: none;
+      margin-top: 24px;
+      text-align: center;
+      background: rgba(0,212,255,0.07);
+      border: 1px dashed rgba(0,212,255,0.3);
+      border-radius: 10px;
+      padding: 20px 16px;
+    }
+    #result .label { font-size: 0.78rem; color: #888; margin-bottom: 6px; }
+    #code-display {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      color: #00d4ff;
+      cursor: pointer;
+      user-select: all;
+    }
+    #code-display:hover { color: #fff; }
+    .copy-hint { font-size: 0.72rem; color: #666; margin-top: 4px; }
+    #summary { font-size: 0.8rem; color: #888; margin-top: 12px; line-height: 1.6; }
+    #copy-btn {
+      margin-top: 14px;
+      padding: 9px;
+      font-size: 0.88rem;
+      background: rgba(0,212,255,0.15);
+      color: #00d4ff;
+      border: 1px solid rgba(0,212,255,0.3);
+    }
+    #copy-btn:hover { background: rgba(0,212,255,0.25); }
+    .warning {
+      background: rgba(255,170,0,0.08);
+      border: 1px solid rgba(255,170,0,0.3);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.75rem;
+      color: #ffaa00;
+      margin-bottom: 24px;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>🔑 Cipher Owner — Code Generator</h1>
+  <p class="subtitle">Generate a one-time activation code to email to a customer after they pay.</p>
+
+  <div class="warning">
+    ⚠️ Keep this page private. Only open it on your own device.
+  </div>
+
+  <label for="in-plan">Plan</label>
+  <select id="in-plan">
+    <option value="pro">Pro Pack ($9.99/mo)</option>
+    <option value="premium">Premium ($19.99/mo)</option>
+  </select>
+
+  <label for="in-email">Customer Email</label>
+  <input type="email" id="in-email" placeholder="customer@example.com" autocomplete="off" />
+
+  <label for="in-ref">Payment Reference (from admin panel)</label>
+  <input type="text" id="in-ref" placeholder="CPH-XXXXXXXX" autocomplete="off"
+         style="text-transform:uppercase;" />
+
+  <button onclick="generate()">Generate Activation Code</button>
+
+  <div id="result">
+    <div class="label">One-time activation code for this customer:</div>
+    <div id="code-display" onclick="copyCode()" title="Click to copy">—</div>
+    <div class="copy-hint">Click code to copy</div>
+    <div id="summary"></div>
+    <button id="copy-btn" onclick="copyCode()">📋 Copy Code</button>
+  </div>
+</div>
+
+<script>
+  /**
+   * Deterministic activation code — identical algorithm to the one in app.js.
+   * Tied to plan + email + ref so it can only be used by the right customer.
+   */
+  function generateActivationCode(plan, email, ref) {
+    const input = `${plan}|${email.trim().toLowerCase()}|${ref}|CM2026_CIPHER`;
+    let h1 = 0xDEADBEEF, h2 = 0x41C6CE57;
+    for (let i = 0; i < input.length; i++) {
+      const c = input.charCodeAt(i);
+      h1 = (Math.imul(h1 ^ c, 2654435761) >>> 0);
+      h2 = (Math.imul(h2 ^ c, 1597334677) >>> 0);
+    }
+    h1 = (Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)) >>> 0;
+    h2 = (Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)) >>> 0;
+    return ((h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0'))
+      .toUpperCase().slice(0, 10);
+  }
+
+  function generate() {
+    const plan  = document.getElementById('in-plan').value.trim();
+    const email = document.getElementById('in-email').value.trim();
+    const ref   = document.getElementById('in-ref').value.trim().toUpperCase();
+
+    if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
+      alert('Please enter a valid customer email address.');
+      return;
+    }
+    if (!ref || ref.length < 4) {
+      alert('Please enter the payment reference from the admin panel (e.g. CPH-XXXXXXXX).');
+      return;
+    }
+
+    const code = generateActivationCode(plan, email, ref);
+    document.getElementById('code-display').textContent = code;
+
+    const planLabel = plan === 'pro' ? 'Pro Pack' : 'Premium';
+    document.getElementById('summary').innerHTML =
+      `Plan: <strong>${planLabel}</strong><br>` +
+      `Email: <strong>${email}</strong><br>` +
+      `Ref: <strong>${ref}</strong>`;
+
+    document.getElementById('result').style.display = 'block';
+  }
+
+  function copyCode() {
+    const code = document.getElementById('code-display').textContent;
+    if (!code || code === '—') return;
+    navigator.clipboard.writeText(code).then(() => {
+      const btn = document.getElementById('copy-btn');
+      btn.textContent = '✅ Copied!';
+      setTimeout(() => { btn.textContent = '📋 Copy Code'; }, 2000);
+    }).catch(() => {
+      window.prompt('Copy the code below:', code);
+    });
+  }
+
+  // Allow Enter key to trigger generation
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') generate();
+  });
+</script>
+</body>
+</html>

@@ -781,17 +781,23 @@
             <h3 class="payment-title">Complete Your Subscription</h3>
             <p class="payment-selected-plan" id="selected-plan-label">Pro Pack — $9.99/mo</p>
 
-            <!-- How to pay -->
+            <!-- How to pay — method selector -->
             <div class="payment-methods">
-              <div class="payment-method-card stripe-method">
-                <p class="payment-method-title">💳 Pay via Stripe</p>
-                <p class="cashapp-note">Secure checkout powered by Stripe. After payment, you'll receive an activation code by email to unlock your plan.</p>
-              </div>
+              <label class="payment-method-card stripe-method" style="cursor:pointer;">
+                <input type="radio" name="pay-method" id="method-stripe" value="stripe" checked style="margin-right:8px;" />
+                <span class="payment-method-title" style="display:inline;">💳 Card (Stripe)</span>
+                <p class="cashapp-note" style="margin-top:6px;">Secure checkout powered by Stripe.</p>
+              </label>
+              <label class="payment-method-card cashapp-method" style="cursor:pointer;">
+                <input type="radio" name="pay-method" id="method-cashapp" value="cashapp" style="margin-right:8px;" />
+                <span class="payment-method-title" style="display:inline;">💚 CashApp</span>
+                <p class="cashapp-note" style="margin-top:6px;">Send payment to the owner's CashApp.</p>
+              </label>
             </div>
 
-            <!-- Step 1 — enter details and card, then pay inline -->
+            <!-- Enter name + email -->
             <form id="payment-form" novalidate>
-              <h4 class="payment-confirm-title">Enter Your Details &amp; Card</h4>
+              <h4 class="payment-confirm-title">Your Details</h4>
               <div class="form-group">
                 <label for="pay-name">Your Name</label>
                 <input type="text" id="pay-name" placeholder="Jane Doe" autocomplete="name" />
@@ -802,18 +808,33 @@
                 <input type="email" id="pay-email" placeholder="you@example.com" autocomplete="email" />
                 <span class="field-error" id="err-pay-email"></span>
               </div>
-              <div class="form-group">
-                <label>Card Details</label>
+
+              <!-- Stripe card block -->
+              <div id="stripe-card-block">
+                <h4 class="payment-confirm-title">Card Details</h4>
                 <div id="stripe-card-element" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:12px 10px;"></div>
                 <span class="field-error" id="err-stripe-card"></span>
               </div>
-              <button type="submit" class="btn-primary btn-full">Pay Now →</button>
+
+              <!-- CashApp instructions block (hidden by default) -->
+              <div id="cashapp-payment-block" class="hidden">
+                <h4 class="payment-confirm-title">Send Payment via CashApp</h4>
+                <div class="cashapp-info">
+                  <p class="cashapp-label">Send payment to:</p>
+                  <a id="cashapp-tag-link" class="cashapp-tag" href="#" target="_blank" rel="noopener noreferrer"></a>
+                  <p class="cashapp-label">Amount: <strong id="cashapp-amount-value"></strong></p>
+                  <p class="cashapp-note">⚠️ Include your payment reference in the CashApp note so the owner can match your payment:</p>
+                  <p class="cashapp-tag" style="font-size:1.1rem;letter-spacing:0.05em;" id="cashapp-ref-value">—</p>
+                </div>
+              </div>
+
+              <button type="submit" id="payment-submit-btn" class="btn-primary btn-full" style="margin-top:18px;">Pay with Card →</button>
             </form>
 
-            <!-- Activation code entry (step 2 — shown after Stripe payment) -->
+            <!-- Activation code entry (shown after payment is submitted) -->
             <div id="payment-activation-section" class="hidden">
               <h4 class="payment-confirm-title">Enter Your Activation Code</h4>
-              <p class="cashapp-note">Your activation code has been emailed to you. Enter it below to unlock your plan instantly.</p>
+              <p class="cashapp-note">Once the owner confirms your payment, they'll email you a 10-character activation code. Enter it below to unlock your plan.</p>
               <div class="form-group">
                 <label for="activation-code-input">Activation Code</label>
                 <input type="text" id="activation-code-input" placeholder="e.g. A1B2C3D4E5" maxlength="10"
