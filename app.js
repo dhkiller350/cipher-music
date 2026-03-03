@@ -3421,12 +3421,12 @@ function renderAdminPayments() {
       ? '<span class="admin-pay-badge admin-pay-confirmed">✅ Confirmed</span>'
       : '<span class="admin-pay-badge admin-pay-pending">⏳ Pending</span>';
     const confirmBtn = confirmed ? '' :
-      `<button class="btn-outline admin-action-btn" onclick="adminConfirmPayment('${escapeHtml(p.ref)}')">✅ Mark Confirmed</button>`;
+      `<button class="btn-outline admin-action-btn" onclick="adminConfirmPayment(${escapeHtml(JSON.stringify(p.ref))})">✅ Mark Confirmed</button>`;
     return `<div class="admin-payment-card">
       <div class="admin-payment-row"><strong>${escapeHtml(p.name || '(no name)')}</strong>${statusHtml}</div>
       <div class="admin-payment-row admin-hint"><span>${escapeHtml(p.email)}</span><span>${escapeHtml(planNames[p.plan] || p.plan)}</span></div>
       <div class="admin-payment-row admin-hint"><span>Ref: <code>${escapeHtml(p.ref)}</code></span><span>${new Date(p.ts).toLocaleDateString()}</span></div>
-      <div class="admin-payment-code-row"><code class="admin-activation-code">${escapeHtml(code)}</code><button class="admin-copy-btn" onclick="adminCopyCode('${escapeHtml(code)}')">Copy</button></div>
+      <div class="admin-payment-code-row"><code class="admin-activation-code">${escapeHtml(code)}</code><button class="admin-copy-btn" onclick="adminCopyCode(${escapeHtml(JSON.stringify(code))})">Copy</button></div>
       ${confirmBtn}
     </div>`;
   }).join('');
@@ -3472,13 +3472,13 @@ function renderAdminUsers() {
         <span class="admin-hint">${escapeHtml(a.email)}</span>
         <span class="admin-hint">Since ${escapeHtml(a.memberSince || '—')}</span>
       </div>
-      <button class="admin-delete-btn" onclick="adminDeleteUser('${escapeHtml(a.email)}')" title="Remove account">🗑</button>
+      <button class="admin-delete-btn" onclick="adminDeleteUser(${escapeHtml(JSON.stringify(a.email))})" title="Remove account">🗑</button>
     </div>`).join('');
 }
 
 /** Remove an account by email (security / bot cleanup). */
 function adminDeleteUser(email) {
-  if (!confirm(`Remove account for ${email}?\nThis cannot be undone.`)) return;
+  if (!confirm(`Remove account for ${escapeHtml(email)}?\nThis cannot be undone.`)) return;
   const accounts = getAccounts().filter(a => a.email.toLowerCase() !== email.toLowerCase());
   localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
   renderAdminUsers();
