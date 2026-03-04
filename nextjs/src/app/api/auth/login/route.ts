@@ -3,27 +3,43 @@ import { supabase } from '@/lib/supabase';
 import { verifyPassword } from '@/lib/hash';
 import { hashToken } from '@/lib/hash';
 import { signAccessToken } from '@/lib/jwt';
-import { extractDeviceInfo, rateLimitResponse } from '@/lib/middleware';
+import { extractDeviceInfo, rateLimitResponse, handlePreflight, applyCorsHeaders } from '@/lib/middleware';
 import { randomUUID } from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
-const COOKIE_OPTS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
-  path: '/',
-};
+// Use SameSite=None + Secure for cross-origin (mobile) compatibility.
+// Same-origin requests still receive SameSite=Lax cookies.
+// CSRF protection is provided by origin validation in getAllowedOrigin():
+// only requests from ALLOWED_ORIGINS receive CORS credentials, and the
+// Authorization: Bearer token (set as a custom header) cannot be forged by
+// cross-site requests even when cookies are present.
+function cookieOpts(request: NextRequest) {
+  const isSecure = process.env.NODE_ENV === 'production';
+  const isCrossOrigin = !!request.headers.get('origin');
+  return {
+    httpOnly: true,
+    secure: isSecure,
+    sameSite: (isCrossOrigin && isSecure ? 'none' : 'lax') as 'none' | 'lax',
+    path: '/',
+  };
+}
+
+// Handle OPTIONS preflight (required by mobile browsers for cross-origin requests)
+export async function OPTIONS(request: NextRequest) {
+  const preflight = handlePreflight(request);
+  return applyCorsHeaders(request, preflight ?? new NextResponse(null, { status: 204 }));
+}
 
 export async function POST(request: NextRequest) {
   // Rate-limit login attempts: 10 per minute per IP
   const limited = rateLimitResponse(request, 10, 60_000);
-  if (limited) return limited;
+  if (limited) return applyCorsHeaders(request, limited);
 
   const body = await request.json();
   const { email, password } = body as { email?: string; password?: string };
   if (!email || !password) {
-    return NextResponse.json({ error: 'email and password are required' }, { status: 400 });
+    return applyCorsHeaders(request, NextResponse.json({ error: 'email and password are required' }, { status: 400 }));
   }
 
   // Maintenance check (allow login during maintenance for admins)
@@ -41,7 +57,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error || !account) {
-    return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    return applyCorsHeaders(request, NextResponse.json({ error: 'Invalid credentials' }, { status: 401 }));
   }
 
   const valid = await verifyPassword(password, account.password_hash);
@@ -58,15 +74,15 @@ export async function POST(request: NextRequest) {
         { user_email: email, failed_logins: (existingAbuse?.failed_logins ?? 0) + 1, updated_at: new Date().toISOString() },
         { onConflict: 'user_email', ignoreDuplicates: false }
       );
-    return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    return applyCorsHeaders(request, NextResponse.json({ error: 'Invalid credentials' }, { status: 401 }));
   }
 
   if (account.banned) {
-    return NextResponse.json({ error: 'Account is banned' }, { status: 403 });
+    return applyCorsHeaders(request, NextResponse.json({ error: 'Account is banned' }, { status: 403 }));
   }
 
   if (isMaintenance && account.role !== 'admin') {
-    return NextResponse.json({ error: 'Platform is under maintenance', maintenance: true }, { status: 503 });
+    return applyCorsHeaders(request, NextResponse.json({ error: 'Platform is under maintenance', maintenance: true }, { status: 503 }));
   }
 
   const sessionId = randomUUID();
@@ -99,29 +115,22 @@ export async function POST(request: NextRequest) {
     { onConflict: 'user_email,user_agent' }
   );
 
-  const [accessToken] = await Promise.all([
-    signAccessToken({
-      sub: account.id,
-      email: account.email,
-      plan: account.plan,
-      banned: account.banned,
-      sessionId,
-    }),
-  ]);
+  const accessToken = await signAccessToken({
+    sub: account.id,
+    email: account.email,
+    plan: account.plan,
+    banned: account.banned,
+    sessionId,
+  });
 
+  const opts = cookieOpts(request);
   const response = NextResponse.json({
     accessToken,
     user: { id: account.id, email: account.email, username: account.username, plan: account.plan },
   });
 
-  response.cookies.set('refresh_token', rawRefreshToken, {
-    ...COOKIE_OPTS,
-    maxAge: 30 * 24 * 60 * 60,
-  });
-  response.cookies.set('access_token', accessToken, {
-    ...COOKIE_OPTS,
-    maxAge: 15 * 60,
-  });
+  response.cookies.set('refresh_token', rawRefreshToken, { ...opts, maxAge: 30 * 24 * 60 * 60 });
+  response.cookies.set('access_token', accessToken, { ...opts, maxAge: 15 * 60 });
 
-  return response;
+  return applyCorsHeaders(request, response);
 }

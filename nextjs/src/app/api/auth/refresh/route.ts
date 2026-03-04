@@ -2,22 +2,34 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { signAccessToken } from '@/lib/jwt';
 import { hashToken } from '@/lib/hash';
-import { extractDeviceInfo } from '@/lib/middleware';
+import { extractDeviceInfo, handlePreflight, applyCorsHeaders } from '@/lib/middleware';
 import { randomUUID } from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
-const COOKIE_OPTS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
-  path: '/',
-};
+// Use SameSite=None + Secure for cross-origin (mobile) compatibility.
+// CSRF protection: origin validation in getAllowedOrigin() ensures only
+// configured origins receive CORS credentials.
+function cookieOpts(request: NextRequest) {
+  const isSecure = process.env.NODE_ENV === 'production';
+  const isCrossOrigin = !!request.headers.get('origin');
+  return {
+    httpOnly: true,
+    secure: isSecure,
+    sameSite: (isCrossOrigin && isSecure ? 'none' : 'lax') as 'none' | 'lax',
+    path: '/',
+  };
+}
+
+export async function OPTIONS(request: NextRequest) {
+  const preflight = handlePreflight(request);
+  return applyCorsHeaders(request, preflight ?? new NextResponse(null, { status: 204 }));
+}
 
 export async function POST(request: NextRequest) {
   const rawToken = request.cookies.get('refresh_token')?.value;
   if (!rawToken) {
-    return NextResponse.json({ error: 'No refresh token' }, { status: 401 });
+    return applyCorsHeaders(request, NextResponse.json({ error: 'No refresh token' }, { status: 401 }));
   }
 
   // Look up the session by hashing the raw token (opaque token design)
@@ -29,14 +41,12 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (!session) {
-    // Token not found — may be a reuse attempt; try to revoke any sessions
-    // we can identify (best-effort via brute-force is not possible, so just reject)
-    return NextResponse.json({ error: 'Invalid or expired refresh token' }, { status: 401 });
+    return applyCorsHeaders(request, NextResponse.json({ error: 'Invalid or expired refresh token' }, { status: 401 }));
   }
 
   if (new Date(session.expires_at) < new Date()) {
     await supabase.from('sessions').delete().eq('id', session.id);
-    return NextResponse.json({ error: 'Session expired' }, { status: 401 });
+    return applyCorsHeaders(request, NextResponse.json({ error: 'Session expired' }, { status: 401 }));
   }
 
   // Fetch current user data
@@ -48,7 +58,7 @@ export async function POST(request: NextRequest) {
 
   if (!account || account.banned) {
     await supabase.from('sessions').delete().eq('id', session.id);
-    return NextResponse.json({ error: 'Account unavailable' }, { status: 403 });
+    return applyCorsHeaders(request, NextResponse.json({ error: 'Account unavailable' }, { status: 403 }));
   }
 
   // Issue new session (token rotation — old session replaced)
@@ -78,19 +88,14 @@ export async function POST(request: NextRequest) {
     sessionId: newSessionId,
   });
 
+  const opts = cookieOpts(request);
   const response = NextResponse.json({
     accessToken,
     user: { id: account.id, email: account.email, username: account.username, plan: account.plan },
   });
 
-  response.cookies.set('refresh_token', newRawRefreshToken, {
-    ...COOKIE_OPTS,
-    maxAge: 30 * 24 * 60 * 60,
-  });
-  response.cookies.set('access_token', accessToken, {
-    ...COOKIE_OPTS,
-    maxAge: 15 * 60,
-  });
+  response.cookies.set('refresh_token', newRawRefreshToken, { ...opts, maxAge: 30 * 24 * 60 * 60 });
+  response.cookies.set('access_token', accessToken, { ...opts, maxAge: 15 * 60 });
 
-  return response;
+  return applyCorsHeaders(request, response);
 }

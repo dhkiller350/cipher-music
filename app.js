@@ -4142,6 +4142,11 @@ function init() {
   }
 
   // Show maintenance overlay/banner if active for non-admin visitors
+  // Check if returning from maintenance.html with admin unlock
+  if (localStorage.getItem('cipher_admin_session') === '1') {
+    localStorage.removeItem('cipher_admin_session');
+    adminState.isAdminSession = true;
+  }
   if (adminState.maintenanceMode && !adminState.isAdminSession) {
     _applyMaintenanceOverlay();
   }
@@ -4665,7 +4670,10 @@ async function adminToggleMaintenance() {
     _postMaintenanceState(adminState.maintenanceMode, checkResults);
 
     document.getElementById('maintenance-banner')?.classList.remove('hidden');
-    showToast('🔧 Maintenance mode ON — running checks…', 'info', 4000);
+    showToast('🔧 Maintenance mode ON — redirecting non-admin users…', 'info', 4000);
+    // Non-admin users (other tabs/devices) are redirected to maintenance.html
+    // via the broadcast listener and the maintenance poller.
+    // The admin (this session) stays on the app.
   } else {
     // Lift maintenance
     _postMaintenanceState(false, []);
@@ -4786,6 +4794,12 @@ function _postMaintenanceState(on, log = []) {
 
 /** Show full-screen maintenance overlay for non-admin users. */
 function _applyMaintenanceOverlay() {
+  // Redirect non-admin users to the dedicated maintenance page.
+  // Admins see the in-app overlay so they can still use the admin panel.
+  if (!adminState.isAdminSession) {
+    window.location.replace('./maintenance.html');
+    return;
+  }
   document.getElementById('maintenance-banner')?.classList.remove('hidden');
   document.getElementById('maintenance-overlay')?.classList.remove('hidden');
 }
@@ -4815,8 +4829,7 @@ function _startMaintenancePoller() {
       adminState.maintenanceMode = on;
       localStorage.setItem(MAINT_KEY, on ? '1' : '0');
       if (on && !adminState.isAdminSession) {
-        _applyMaintenanceOverlay();
-        setTimeout(() => location.reload(), 1500);
+        _applyMaintenanceOverlay(); // redirects non-admins to maintenance.html
       } else if (!on) {
         _removeMaintenanceOverlay();
       }
@@ -4841,8 +4854,7 @@ function _startMaintenancePoller() {
       adminState.maintenanceMode = on;
       localStorage.setItem(MAINT_KEY, on ? '1' : '0');
       if (on && !adminState.isAdminSession) {
-        _applyMaintenanceOverlay();
-        setTimeout(() => location.reload(), 1500); // reload so users see fresh state
+        _applyMaintenanceOverlay(); // redirects non-admins to maintenance.html
       } else if (!on) {
         _removeMaintenanceOverlay();
         if (!adminState.isAdminSession) setTimeout(() => location.reload(), 800);
