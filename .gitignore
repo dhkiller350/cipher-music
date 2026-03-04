@@ -425,6 +425,10 @@ admin/data/access_log.json
 admin/data/banned.json
 admin/data/status.json
 
+# Node.js backend
+backend/node_modules/
+backend/.env
+
 # Next.js
 nextjs/.next/
 nextjs/out/

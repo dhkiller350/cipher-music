@@ -1,0 +1,31 @@
+{
+  "name": "cipher-music-backend",
+  "version": "1.0.0",
+  "description": "Production-ready Node.js backend for Cipher Music platform",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "lint": "eslint src cli",
+    "cli": "node cli/admin-cli.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.8.1"
+  },
+  "devDependencies": {
+    "eslint": "^9.16.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
