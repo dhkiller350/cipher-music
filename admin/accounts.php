@@ -63,7 +63,7 @@ if ($action === 'sync') {
     $username     = htmlspecialchars(substr(trim($body['username']     ?? ''), 0, 50), ENT_QUOTES, 'UTF-8');
     $passwordHash = preg_replace('/[^a-f0-9]/i', '', trim($body['passwordHash'] ?? ''));
     $memberSince  = htmlspecialchars(substr(trim($body['memberSince']  ?? ''), 0, 40), ENT_QUOTES, 'UTF-8');
-    $tier         = in_array($body['tier'] ?? '', ['free', 'premium'], true) ? $body['tier'] : 'free';
+    $tier         = in_array($body['tier'] ?? '', ['free', 'pro', 'premium'], true) ? $body['tier'] : 'free';
 
     if (!$email || !$username || strlen($passwordHash) < 32) {
         json_response(['ok' => false, 'error' => 'email, username and passwordHash are required'], 400);
@@ -159,6 +159,39 @@ if ($action === 'update_password') {
         if (strtolower($a['email']) === strtolower($email)) {
             $a['passwordHash'] = $passwordHash;
             $updated = true;
+            break;
+        }
+    }
+    unset($a);
+
+    if (!$updated) {
+        json_response(['ok' => false, 'error' => 'Account not found'], 404);
+    }
+
+    save_accounts($ACCOUNTS_FILE, $accounts);
+    json_response(['ok' => true]);
+}
+
+// ── action: update_plan (cross-device plan sync) ──────────────────────────────
+if ($action === 'update_plan') {
+    $email        = filter_var(trim($body['email']        ?? ''), FILTER_SANITIZE_EMAIL);
+    $passwordHash = preg_replace('/[^a-f0-9]/i', '', trim($body['passwordHash'] ?? ''));
+    $tier         = in_array($body['tier'] ?? '', ['free', 'pro', 'premium'], true) ? $body['tier'] : 'free';
+
+    if (!$email || strlen($passwordHash) < 32) {
+        json_response(['ok' => false, 'error' => 'email and passwordHash are required'], 400);
+    }
+
+    $accounts = load_accounts($ACCOUNTS_FILE);
+    $updated  = false;
+
+    foreach ($accounts as &$a) {
+        if (strtolower($a['email']) === strtolower($email)) {
+            if (!hash_equals($a['passwordHash'], $passwordHash)) {
+                json_response(['ok' => false, 'error' => 'Unauthorized'], 401);
+            }
+            $a['tier'] = $tier;
+            $updated   = true;
             break;
         }
     }

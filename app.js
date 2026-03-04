@@ -349,6 +349,9 @@ document.addEventListener('visibilitychange', () => {
       }
     }
     _wasPlayingWhenHidden = false;
+    // Sync plan from server whenever the tab becomes visible again — picks
+    // up upgrades that were activated on another device while this tab was hidden.
+    _syncPlanFromServer().catch(() => { /* non-blocking */ });
   }
 });
 
@@ -1116,6 +1119,10 @@ async function handleLogin(e) {
   };
 
   saveUser(user);
+  // Apply the plan stored on the account (may have been upgraded on another device)
+  if (account.tier) {
+    savePlan(account.tier);
+  }
   updateHeaderUser();
   _logAccessEvent('login', user.email, user.username);
 
@@ -2403,10 +2410,64 @@ function loadPlan() {
 function savePlan(plan) {
   state.activePlan = plan;
   localStorage.setItem('cipher_active_plan', plan);
+  // Keep the stored account record in sync so future local logins reflect the plan
+  const accounts = getAccounts();
+  const email = state.user?.email?.toLowerCase();
+  if (email) {
+    const acc = accounts.find(a => a.email?.toLowerCase() === email);
+    if (acc) { acc.tier = plan; localStorage.setItem('cipher_accounts', JSON.stringify(accounts)); }
+  }
   updatePlanBanner();
   updatePlanBadge();
   updateProfilePlanCard();
   applyPlanGates();
+  // Push the new tier to the server so every other device picks it up
+  _syncPlanToServer(plan);
+}
+
+/**
+ * Push the current plan/tier to the server accounts store (best-effort).
+ * Called after a plan is locally activated so other devices can pull the update.
+ */
+function _syncPlanToServer(plan) {
+  if (!ADMIN_ACCOUNTS_URL || !state.user) return;
+  const account = findAccount(state.user.email);
+  if (!account?.passwordHash) return;
+  fetch(ADMIN_ACCOUNTS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'update_plan', email: state.user.email, passwordHash: account.passwordHash, tier: plan })
+  }).catch(() => { /* best-effort — never block the user */ });
+}
+
+/**
+ * Pull the current tier from the server and apply it locally if it differs.
+ * Called on page load (when the user is already signed in) and whenever the
+ * tab regains focus, so any upgrade made on another device is reflected here.
+ */
+async function _syncPlanFromServer() {
+  if (!ADMIN_ACCOUNTS_URL || !state.user) return;
+  const account = findAccount(state.user.email);
+  if (!account?.passwordHash) return;
+  try {
+    const res = await fetch(ADMIN_ACCOUNTS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'login', emailOrUsername: state.user.email, passwordHash: account.passwordHash })
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const serverTier = data?.account?.tier;
+    if (!serverTier) return;
+    const tierOrder = { free: 0, pro: 1, premium: 2 };
+    // Only apply if the server has a strictly higher tier — avoids a redundant
+    // savePlan() call (and the accompanying toast) when already at the same level
+    if ((tierOrder[serverTier] ?? 0) > (tierOrder[state.activePlan] ?? 0)) {
+      savePlan(serverTier);
+      const planLabels = { pro: 'Pro Pack ⭐', premium: 'Premium 💎' };
+      showToast(`✅ Plan updated to ${planLabels[serverTier] || serverTier} from another device.`, 'success', 4000);
+    }
+  } catch (_) { /* server unavailable — ignore */ }
 }
 
 function updatePlanBadge() {
@@ -4082,6 +4143,19 @@ function bindEvents() {
     localStorage.setItem('cipher_accent_color', this.value);
   });
   $('#btn-reset-accent')?.addEventListener('click', resetAccentColor);
+
+  // ── Cross-tab plan sync ──
+  // When the plan is activated in another tab of the same browser, the
+  // 'storage' event fires here so the UI updates immediately without a reload.
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'cipher_active_plan' && e.newValue && e.newValue !== state.activePlan) {
+      state.activePlan = e.newValue;
+      updatePlanBanner();
+      updatePlanBadge();
+      updateProfilePlanCard();
+      applyPlanGates();
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -4139,6 +4213,8 @@ function init() {
     if (CONFIG.CIPHER_API_BASE) {
       _cipherRefreshSession(state.user.email).catch(() => { /* non-blocking */ });
     }
+    // Sync plan from server so upgrades made on another device apply here too
+    _syncPlanFromServer().catch(() => { /* non-blocking */ });
   } else {
     showView('login');
   }
