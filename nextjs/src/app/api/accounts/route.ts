@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { hashPassword } from '@/lib/hash';
+import { rateLimitResponse } from '@/lib/middleware';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +12,7 @@ export async function GET(request: NextRequest) {
   }
   const { data, error } = await supabase
     .from('accounts')
-    .select('*')
+    .select('id, email, username, plan, banned, member_since, created_at')
     .eq('email', email)
     .single();
   if (error) {
@@ -23,11 +25,28 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
-  const { username, email, passwordHash, memberSince, plan } = body;
-  if (!username || !email || !passwordHash) {
-    return NextResponse.json({ error: 'username, email, and passwordHash are required' }, { status: 400 });
+  // Rate-limit signups: 5 per minute per IP
+  const limited = rateLimitResponse(request, 5, 60_000);
+  if (limited) return limited;
+
+  // Maintenance check — block new signups in maintenance mode
+  const { data: config } = await supabase
+    .from('platform_config')
+    .select('value')
+    .eq('key', 'platform_status')
+    .single();
+  if (config?.value === 'maintenance') {
+    return NextResponse.json({ error: 'Signups are disabled during maintenance', maintenance: true }, { status: 503 });
   }
+
+  const body = await request.json();
+  const { username, email, password, memberSince, plan } = body;
+  if (!username || !email || !password) {
+    return NextResponse.json({ error: 'username, email, and password are required' }, { status: 400 });
+  }
+
+  const passwordHash = await hashPassword(password);
+
   const { data, error } = await supabase
     .from('accounts')
     .upsert(
@@ -41,7 +60,7 @@ export async function POST(request: NextRequest) {
       },
       { onConflict: 'email' }
     )
-    .select()
+    .select('id, email, username, plan, banned, member_since')
     .single();
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -58,10 +77,11 @@ export async function DELETE(request: NextRequest) {
     .from('accounts')
     .update({ banned: true, updated_at: new Date().toISOString() })
     .eq('email', email)
-    .select()
+    .select('id, email, username, banned')
     .single();
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   return NextResponse.json(data);
 }
+

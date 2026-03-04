@@ -114,6 +114,18 @@ export async function POST(request: NextRequest) {
       }
       break;
     }
+    case 'customer.subscription.updated': {
+      const status = obj['status'] as string | undefined;
+      const userEmail = obj['customer_email'] as string | undefined;
+      if (userEmail) {
+        const newPlan = status === 'active' ? 'premium' : 'free';
+        await supabase
+          .from('accounts')
+          .update({ plan: newPlan, updated_at: new Date().toISOString() })
+          .eq('email', userEmail);
+      }
+      break;
+    }
     case 'customer.subscription.deleted': {
       const userEmail = obj['customer_email'] as string | undefined;
       if (userEmail) {
@@ -153,11 +165,34 @@ export async function POST(request: NextRequest) {
     }
     case 'payment_intent.payment_failed': {
       const intentId = obj['id'] as string | undefined;
+      const failedEmail = (obj['receipt_email'] ?? obj['customer_email']) as string | undefined;
       if (intentId) {
         await supabase
           .from('payments')
           .update({ status: 'failed', stripe_event_id: event.id, updated_at: new Date().toISOString() })
           .eq('stripe_payment_intent_id', intentId);
+      }
+      // Fraud detection: track failed payments per account
+      if (failedEmail) {
+        const { data: abuse } = await supabase
+          .from('abuse_records')
+          .select('failed_payments')
+          .eq('user_email', failedEmail)
+          .single();
+        const newCount = (abuse?.failed_payments ?? 0) + 1;
+        const autoflag = newCount >= 3;
+        await supabase
+          .from('abuse_records')
+          .upsert(
+            {
+              user_email: failedEmail,
+              failed_payments: newCount,
+              flagged: autoflag,
+              flagged_reason: autoflag ? 'Excessive payment failures' : null,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_email' }
+          );
       }
       break;
     }
