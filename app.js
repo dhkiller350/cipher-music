@@ -2682,7 +2682,9 @@ function toggleVideoMode() {
   if (btn) btn.classList.toggle('active', state.videoMode);
 
   if (state.videoMode && state.ytPlayer && state.ytReady) {
-    state.ytPlayer.setSize(container.clientWidth, Math.min(container.clientHeight, MAX_VIDEO_HEIGHT));
+    const w = container.clientWidth || 320;
+    const h = Math.round(Math.min(w * 9 / 16, MAX_VIDEO_HEIGHT));
+    state.ytPlayer.setSize(w, h);
   }
 }
 
