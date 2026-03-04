@@ -66,7 +66,14 @@ async function _cipherApiCall(method, path, body) {
 //           2) derived from CONFIG.ADMIN_NOTIFY_URL (static fallback)
 //           3) empty string (server features disabled)
 function _loadAdminBase() {
-  const stored = (localStorage.getItem('cipher_admin_server_url') || '').trim().replace(/\/+$/, '');
+  let stored = (localStorage.getItem('cipher_admin_server_url') || '').trim().replace(/\/+$/, '');
+  // Avoid mixed-content errors when the app is served over HTTPS but the stored
+  // admin URL is HTTP.  Auto-upgrade to HTTPS (best effort) so requests are allowed.
+  const insecureProtocolRegex = /^http:\/\//i;
+  const isHttpsOrigin = window.location && window.location.protocol === 'https:';
+  if (stored && isHttpsOrigin && insecureProtocolRegex.test(stored)) {
+    stored = stored.replace(insecureProtocolRegex, 'https://');
+  }
   if (stored) return stored;
   if (CONFIG.ADMIN_NOTIFY_URL) return CONFIG.ADMIN_NOTIFY_URL.replace(/\/[^/]+$/, '');
   return '';
@@ -5243,4 +5250,3 @@ console.log(
   '%c[Cipher Music] Owner console available → type %cCipherAdmin.help()%c for commands.',
   'color:#555', 'color:#00d4ff;font-weight:bold', 'color:#555'
 );
-
