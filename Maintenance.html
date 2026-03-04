@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Site Under Maintenance</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --text: #e2e8f0;
+      --accent: #38bdf8;
+      --muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      background: radial-gradient(circle at top left, rgba(56, 189, 248, 0.08), transparent 35%),
+                  radial-gradient(circle at bottom right, rgba(94, 234, 212, 0.08), transparent 35%),
+                  var(--bg);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .card {
+      width: min(620px, 100%);
+      background: var(--panel);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow:
+        0 20px 60px rgba(15, 23, 42, 0.35),
+        0 0 0 1px rgba(56, 189, 248, 0.06);
+      backdrop-filter: blur(6px);
+      text-align: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--accent);
+      border-radius: 999px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      font-size: 0.85rem;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      font-size: clamp(1.75rem, 3vw, 2.4rem);
+      margin-bottom: 12px;
+      letter-spacing: -0.01em;
+    }
+
+    p {
+      color: var(--muted);
+      line-height: 1.6;
+      max-width: 480px;
+      margin: 0 auto 24px;
+      font-size: 1rem;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: rgba(148, 163, 184, 0.08);
+      border-radius: 12px;
+      color: var(--text);
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      margin-bottom: 16px;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 6px rgba(56, 189, 248, 0.16);
+      position: relative;
+    }
+
+    .dot::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 2px solid rgba(56, 189, 248, 0.7);
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.9); opacity: 1; }
+      70% { transform: scale(1.6); opacity: 0; }
+      100% { transform: scale(0.9); opacity: 0; }
+    }
+
+    .details {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .details span {
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(148, 163, 184, 0.06);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .actions {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 600;
+      transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+    }
+
+    .button:hover, .button:focus-visible {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(56, 189, 248, 0.18);
+      border-color: rgba(56, 189, 248, 0.7);
+      outline: none;
+    }
+
+    .button.secondary {
+      border-color: rgba(148, 163, 184, 0.4);
+      background: rgba(148, 163, 184, 0.08);
+    }
+
+    footer {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <main class="card" role="alert" aria-live="polite">
+    <div class="badge" aria-hidden="true">Maintenance Mode</div>
+    <h1>We&rsquo;ll be right back</h1>
+    <p>We&rsquo;re applying updates to keep everything fast and secure. The site will return as soon as the maintenance finishes.</p>
+
+    <div class="status">
+      <span class="dot" aria-hidden="true"></span>
+      Live updates in progress
+    </div>
+
+    <div class="details">
+      <span>Estimated window: <strong>Less than an hour</strong></span>
+      <span>Last update: <strong><time datetime="2026-03-04">March 4, 2026</time></strong></span>
+      <span>Need help? <strong>support@ciphermusic.app</strong></span>
+    </div>
+
+    <div class="actions">
+      <a class="button" href="mailto:support@ciphermusic.app">Contact Support</a>
+      <a class="button secondary" href="https://status.ciphermusic.app" target="_blank" rel="noopener">View Status Page</a>
+    </div>
+
+    <footer>Thank you for your patience while we finish these updates.</footer>
+  </main>
+</body>
+</html>
