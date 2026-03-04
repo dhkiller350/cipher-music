@@ -1261,18 +1261,15 @@ body:not(.dark-mode) .settings-group select option {
    ═══════════════════════════════════════════════════════════ */
 .genre-chips {
   display: flex;
-  gap: 10px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
+  gap: 8px 10px;
+  flex-wrap: wrap;
   padding-bottom: 8px;
   margin-bottom: 24px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0,212,255,0.35) transparent;
 }
 
-.genre-chips::-webkit-scrollbar { height: 4px; }
-.genre-chips::-webkit-scrollbar-track { background: transparent; }
-.genre-chips::-webkit-scrollbar-thumb { background: rgba(0,212,255,0.35); border-radius: 2px; }
+.genre-chips-heading {
+  margin-bottom: 10px;
+}
 
 .genre-chip {
   background: var(--bg-card);
@@ -1714,8 +1711,8 @@ body:not(.dark-mode) .settings-group select option {
   .player-controls { order: 1; flex: 0 0 auto; }
   .now-playing { order: 2; flex: 1; min-width: 0; }
   .volume-wrap { order: 3; flex: 1; }
-  .genre-chips { gap: 6px; }
-  .genre-chip { font-size: 0.7rem; padding: 5px 10px; }
+  .genre-chips { gap: 6px 10px; }
+  .genre-chip { font-size: 0.75rem; padding: 6px 12px; }
   .auth-card { padding: 24px 16px; }
   .plans-grid { grid-template-columns: 1fr; }
   .stats-grid { grid-template-columns: 1fr 1fr; }
@@ -2774,6 +2771,9 @@ body:not(.dark-mode) .liked-sort-select { background: #fff; color: #111133; }
 
   /* Better spacing between player controls */
   .player-controls { gap: 12px; }
+
+  /* Genre chips: bigger tap targets on touch devices (iOS HIG) */
+  .genre-chip { padding: 9px 16px; }
 }
 
 /* ── Player bar improved mobile layout ───────────────────── */
