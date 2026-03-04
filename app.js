@@ -352,6 +352,8 @@ document.addEventListener('visibilitychange', () => {
     // Sync plan from server whenever the tab becomes visible again — picks
     // up upgrades that were activated on another device while this tab was hidden.
     _syncPlanFromServer().catch(() => { /* non-blocking */ });
+    // Sync appearance settings from server whenever the tab becomes visible.
+    _syncSettingsFromServer().catch(() => { /* non-blocking */ });
   }
 });
 
@@ -3035,6 +3037,79 @@ function saveSettings() {
     language:       $('#language-select')?.value         ?? 'en'
   };
   localStorage.setItem('cipher_settings', JSON.stringify(settings));
+  // Push to server so all other devices pick up the change automatically
+  _syncSettingsToServer(settings, localStorage.getItem('cipher_accent_color') || '');
+}
+
+/**
+ * Push the current settings + accent colour to the server (best-effort).
+ * Called after every local settings save so other devices can pull the update.
+ */
+function _syncSettingsToServer(settings, accentColor) {
+  if (!ADMIN_ACCOUNTS_URL || !state.user) return;
+  const account = findAccount(state.user.email);
+  if (!account?.passwordHash) return;
+  fetch(ADMIN_ACCOUNTS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'update_settings',
+      email: state.user.email,
+      passwordHash: account.passwordHash,
+      settings,
+      accentColor: accentColor || ''
+    })
+  }).catch(() => { /* best-effort — never block the user */ });
+}
+
+/**
+ * Pull settings + accent colour from the server and apply them locally if they
+ * differ from what's stored.  Called on page load (logged-in user) and on
+ * visibilitychange so changes made on another device appear here automatically.
+ */
+async function _syncSettingsFromServer() {
+  if (!ADMIN_ACCOUNTS_URL || !state.user) return;
+  const account = findAccount(state.user.email);
+  if (!account?.passwordHash) return;
+  try {
+    const res = await fetch(ADMIN_ACCOUNTS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get_settings', email: state.user.email, passwordHash: account.passwordHash })
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.ok) return;
+
+    let changed = false;
+
+    // Apply settings if the server has them and they differ from local
+    if (data.settings && typeof data.settings === 'object') {
+      let local = {};
+      try { local = JSON.parse(localStorage.getItem('cipher_settings') || '{}'); } catch (_) { /* ignore corrupt value */ }
+      if (JSON.stringify(data.settings) !== JSON.stringify(local)) {
+        localStorage.setItem('cipher_settings', JSON.stringify(data.settings));
+        loadSettings(); // re-apply all toggles / selects
+        changed = true;
+      }
+    }
+
+    // Apply accent colour if it differs from local
+    if (data.accentColor) {
+      const localColor = localStorage.getItem('cipher_accent_color') || '';
+      if (data.accentColor !== localColor) {
+        localStorage.setItem('cipher_accent_color', data.accentColor);
+        applyAccentColor(data.accentColor);
+        const picker = $('#accent-color-picker');
+        if (picker) picker.value = data.accentColor;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      showToast('✅ Appearance synced from another device.', 'info', 3000);
+    }
+  } catch (_) { /* server unavailable — ignore */ }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3459,6 +3534,8 @@ function resetAccentColor() {
   const picker = $('#accent-color-picker');
   if (picker) picker.value = '#00d4ff';
   showToast('Accent colour reset to default.', 'info', 2000);
+  // Sync the reset to the server so other devices also revert
+  _syncSettingsToServer((() => { try { return JSON.parse(localStorage.getItem('cipher_settings') || '{}'); } catch (_) { return {}; } })(), '#00d4ff');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -4141,11 +4218,14 @@ function bindEvents() {
   $('#accent-color-picker')?.addEventListener('input', function () {
     applyAccentColor(this.value);
     localStorage.setItem('cipher_accent_color', this.value);
+    // Sync to server so other devices pick up the new accent colour
+    let s = {}; try { s = JSON.parse(localStorage.getItem('cipher_settings') || '{}'); } catch (_) { /* ignore */ }
+    _syncSettingsToServer(s, this.value);
   });
   $('#btn-reset-accent')?.addEventListener('click', resetAccentColor);
 
-  // ── Cross-tab plan sync ──
-  // When the plan is activated in another tab of the same browser, the
+  // ── Cross-tab plan + settings sync ──
+  // When settings/plan are changed in another tab of the same browser the
   // 'storage' event fires here so the UI updates immediately without a reload.
   window.addEventListener('storage', (e) => {
     if (e.key === 'cipher_active_plan' && e.newValue && e.newValue !== state.activePlan) {
@@ -4154,6 +4234,15 @@ function bindEvents() {
       updatePlanBadge();
       updateProfilePlanCard();
       applyPlanGates();
+    }
+    if (e.key === 'cipher_settings' && e.newValue) {
+      // Another tab saved new settings — re-apply them here immediately
+      loadSettings();
+    }
+    if (e.key === 'cipher_accent_color' && e.newValue) {
+      applyAccentColor(e.newValue);
+      const picker = $('#accent-color-picker');
+      if (picker) picker.value = e.newValue;
     }
   });
 }
@@ -4215,6 +4304,8 @@ function init() {
     }
     // Sync plan from server so upgrades made on another device apply here too
     _syncPlanFromServer().catch(() => { /* non-blocking */ });
+    // Sync appearance settings so changes made on another device apply here too
+    _syncSettingsFromServer().catch(() => { /* non-blocking */ });
   } else {
     showView('login');
   }

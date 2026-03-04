@@ -205,4 +205,70 @@ if ($action === 'update_plan') {
     json_response(['ok' => true]);
 }
 
+// ── action: update_settings (cross-device appearance/settings sync) ───────────
+if ($action === 'update_settings') {
+    $email        = filter_var(trim($body['email']        ?? ''), FILTER_SANITIZE_EMAIL);
+    $passwordHash = preg_replace('/[^a-f0-9]/i', '', trim($body['passwordHash'] ?? ''));
+    $settings     = $body['settings']    ?? null;
+    $accentColor  = preg_match('/^#[a-f0-9]{6}$/i', trim($body['accentColor'] ?? '')) ? trim($body['accentColor']) : '';
+
+    if (!$email || strlen($passwordHash) < 32) {
+        json_response(['ok' => false, 'error' => 'email and passwordHash are required'], 400);
+    }
+
+    $accounts = load_accounts($ACCOUNTS_FILE);
+    $updated  = false;
+
+    foreach ($accounts as &$a) {
+        if (strtolower($a['email']) === strtolower($email)) {
+            if (!hash_equals($a['passwordHash'], $passwordHash)) {
+                json_response(['ok' => false, 'error' => 'Unauthorized'], 401);
+            }
+            if ($settings !== null && (is_array($settings) || is_object($settings))) {
+                $a['settings'] = (array)$settings;
+            }
+            if ($accentColor) {
+                $a['accentColor'] = $accentColor;
+            }
+            $updated = true;
+            break;
+        }
+    }
+    unset($a);
+
+    if (!$updated) {
+        json_response(['ok' => false, 'error' => 'Account not found'], 404);
+    }
+
+    save_accounts($ACCOUNTS_FILE, $accounts);
+    json_response(['ok' => true]);
+}
+
+// ── action: get_settings (fetch stored appearance/settings) ───────────────────
+if ($action === 'get_settings') {
+    $email        = filter_var(trim($body['email']        ?? ''), FILTER_SANITIZE_EMAIL);
+    $passwordHash = preg_replace('/[^a-f0-9]/i', '', trim($body['passwordHash'] ?? ''));
+
+    if (!$email || strlen($passwordHash) < 32) {
+        json_response(['ok' => false, 'error' => 'email and passwordHash are required'], 400);
+    }
+
+    $accounts = load_accounts($ACCOUNTS_FILE);
+
+    foreach ($accounts as $a) {
+        if (strtolower($a['email']) === strtolower($email)) {
+            if (!hash_equals($a['passwordHash'], $passwordHash)) {
+                json_response(['ok' => false, 'error' => 'Unauthorized'], 401);
+            }
+            json_response([
+                'ok'          => true,
+                'settings'    => $a['settings']    ?? null,
+                'accentColor' => $a['accentColor'] ?? null,
+            ]);
+        }
+    }
+
+    json_response(['ok' => false, 'error' => 'Account not found'], 404);
+}
+
 json_response(['ok' => false, 'error' => 'Unknown action'], 400);
