@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#00d4ff" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Cipher Music" />
+  <meta name="description" content="Stream music with Cipher — your personal music player" />
+  <!-- Prevent iOS from treating phone numbers as links -->
+  <meta name="format-detection" content="telephone=no" />
+  <title>Cipher Music</title>
+  <!-- Favicon — tab icon next to the page title -->
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="icon-16.png" />
+  <!-- iOS "Add to Home Screen" icon -->
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="dark-mode">
+
+  <!-- ── PWA Install Banner (shown by JS when beforeinstallprompt fires) ── -->
+  <div id="pwa-install-banner" class="pwa-install-banner hidden" role="banner" aria-live="polite">
+    <div class="pwa-banner-content">
+      <img src="icon-192.png" alt="Cipher Music" class="pwa-banner-icon" />
+      <div class="pwa-banner-text">
+        <strong>Install Cipher Music</strong>
+        <span>Add to your home screen for the best experience</span>
+      </div>
+    </div>
+    <div class="pwa-banner-actions">
+      <button id="btn-pwa-install" class="btn-primary pwa-install-btn">Install</button>
+      <button id="btn-pwa-dismiss" class="pwa-dismiss-btn" aria-label="Dismiss install banner">✕</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       GLOBAL HEADER
+  ═══════════════════════════════════════════ -->
+  <header id="app-header">
+    <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Toggle menu">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="header-brand">
+      <div class="logo-icon">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="14" cy="14" r="13" stroke="#00d4ff" stroke-width="2"/>
+          <path d="M10 9 L10 19 L20 14 Z" fill="#00d4ff"/>
+          <circle cx="14" cy="14" r="3" fill="#7c3aed"/>
+        </svg>
+      </div>
+      <span class="brand-name">Cipher Music</span>
+    </div>
+    <div class="header-info">
+      <span id="greeting-text">Good Morning</span>
+      <span id="sleep-timer-indicator" class="sleep-timer-indicator hidden" title="Sleep timer active">⏱️</span>
+      <span id="plan-badge" class="plan-badge hidden"></span>
+      <span id="user-name-display" class="user-name hidden"></span>
+      <span id="clock-display" class="clock">00:00:00</span>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════
+       MAIN LAYOUT
+  ═══════════════════════════════════════════ -->
+  <div id="app-wrapper">
+
+    <!-- SIDEBAR NAV (hidden on login) -->
+    <nav id="sidebar" class="hidden">
+      <ul class="nav-list">
+        <li class="nav-item active" data-view="player">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
+          <span>Music</span>
+        </li>
+        <li class="nav-item" data-view="liked">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+          </svg>
+          <span>Liked</span>
+        </li>
+        <li class="nav-item" data-view="playlists">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+          <span>Playlists</span>
+        </li>
+        <li class="nav-item" data-view="profile">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+          </svg>
+          <span>Profile</span>
+        </li>
+        <li class="nav-item" data-view="upgrade">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>
+          </svg>
+          <span>Upgrade</span>
+        </li>
+        <li class="nav-item" data-view="settings">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span>Settings</span>
+        </li>
+      </ul>
+    </nav>
+    <!-- Mobile sidebar backdrop -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop hidden" aria-hidden="true"></div>
+
+    <!-- MAIN CONTENT -->
+    <main id="main-content">
+
+      <!-- ─── LOGIN VIEW ─── -->
+      <section id="view-login" class="view active">
+        <div class="auth-container">
+          <div class="auth-card glass-card">
+            <div class="auth-logo">
+              <svg width="48" height="48" viewBox="0 0 28 28" fill="none">
+                <circle cx="14" cy="14" r="13" stroke="#00d4ff" stroke-width="2"/>
+                <path d="M10 9 L10 19 L20 14 Z" fill="#00d4ff"/>
+                <circle cx="14" cy="14" r="3" fill="#7c3aed"/>
+              </svg>
+              <h1>Cipher Music</h1>
+              <p class="auth-subtitle">Sign in to your account</p>
+            </div>
+            <form id="login-form" novalidate>
+              <div class="form-group">
+                <label for="login-email">Email or Username</label>
+                <input type="text" id="login-email" placeholder="Enter your email or username" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" />
+                <span class="field-error" id="err-login-email"></span>
+              </div>
+              <div class="form-group">
+                <label for="login-password">Password</label>
+                <div class="password-wrap">
+                  <input type="password" id="login-password" placeholder="Enter your password" autocomplete="current-password" />
+                  <button type="button" class="toggle-pw" id="toggle-pw-btn" aria-label="Toggle password visibility">
+                    <svg id="pw-eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  </button>
+                </div>
+                <span class="field-error" id="err-login-password"></span>
+              </div>
+              <div class="form-group checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="remember-me" />
+                  <span class="checkmark"></span>
+                  Remember Me
+                </label>
+              </div>
+              <button type="submit" class="btn-primary btn-full" id="signin-btn">Sign In to Cipher</button>
+              <p class="auth-footer"><a href="#" id="forgot-link">Forgot password?</a></p>
+              <p class="auth-footer">Signing in from a new device? <a href="#" id="import-device-code-link">Use a device code</a></p>
+              <p class="auth-footer">Don't have an account? <a href="#" id="signup-link">Sign Up</a></p>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── SIGN-UP VIEW ─── -->
+      <section id="view-signup" class="view">
+        <div class="auth-container">
+          <div class="auth-card glass-card">
+            <div class="auth-logo">
+              <svg width="48" height="48" viewBox="0 0 28 28" fill="none">
+                <circle cx="14" cy="14" r="13" stroke="#00d4ff" stroke-width="2"/>
+                <path d="M10 9 L10 19 L20 14 Z" fill="#00d4ff"/>
+                <circle cx="14" cy="14" r="3" fill="#7c3aed"/>
+              </svg>
+              <h1>Cipher Music</h1>
+              <p class="auth-subtitle">Create your free account</p>
+            </div>
+            <form id="signup-form" novalidate>
+              <div class="form-group">
+                <label for="su-username">Username</label>
+                <input type="text" id="su-username" placeholder="Choose a username" autocomplete="username" />
+                <span class="field-error" id="err-su-username"></span>
+              </div>
+              <div class="form-group">
+                <label for="su-email">Email</label>
+                <input type="email" id="su-email" placeholder="Enter your email address" autocomplete="email" />
+                <span class="field-error" id="err-su-email"></span>
+              </div>
+              <div class="form-group">
+                <label for="su-password">Password</label>
+                <div class="password-wrap">
+                  <input type="password" id="su-password" placeholder="Create a strong password" autocomplete="new-password" />
+                  <button type="button" class="toggle-pw" id="su-toggle-pw" aria-label="Toggle password visibility">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  </button>
+                </div>
+                <span class="field-error" id="err-su-password"></span>
+              </div>
+              <div class="form-group">
+                <label for="su-confirm">Confirm Password</label>
+                <div class="password-wrap">
+                  <input type="password" id="su-confirm" placeholder="Re-enter your password" autocomplete="new-password" />
+                </div>
+                <span class="field-error" id="err-su-confirm"></span>
+              </div>
+              <div class="form-group checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="su-terms" />
+                  <span class="checkmark"></span>
+                  I agree to the <a href="#" onclick="return false">Terms of Service</a>
+                </label>
+                <span class="field-error" id="err-su-terms"></span>
+              </div>
+              <button type="submit" class="btn-primary btn-full" id="create-account-btn">Create Account</button>
+              <p class="auth-footer">Already have an account? <a href="#" id="signin-link">Sign In</a></p>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── EMAIL VERIFY VIEW ─── -->
+      <section id="view-verify" class="view">
+        <div class="auth-container">
+          <div class="auth-card glass-card">
+            <div class="auth-logo">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="1.5">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                <polyline points="22,6 12,13 2,6"/>
+              </svg>
+              <h1>Check Your Email</h1>
+              <p class="auth-subtitle" id="verify-subtitle">We sent a 6-digit code to</p>
+              <p id="verify-email-display" class="verify-email-addr"></p>
+            </div>
+
+            <!-- Verification code display (always shown) -->
+            <div id="demo-code-hint" class="verify-code-display hidden">
+              <p class="verify-code-label">Your verification code</p>
+              <p id="demo-code-value" class="verify-code-number"></p>
+              <p class="verify-code-note">Enter this code in the boxes below</p>
+            </div>
+
+            <div class="otp-wrap">
+              <div class="otp-inputs" id="otp-inputs">
+                <input class="otp-box" maxlength="1" inputmode="numeric" pattern="\d" aria-label="Digit 1" />
+                <input class="otp-box" maxlength="1" inputmode="numeric" pattern="\d" aria-label="Digit 2" />
+                <input class="otp-box" maxlength="1" inputmode="numeric" pattern="\d" aria-label="Digit 3" />
+                <input class="otp-box" maxlength="1" inputmode="numeric" pattern="\d" aria-label="Digit 4" />
+                <input class="otp-box" maxlength="1" inputmode="numeric" pattern="\d" aria-label="Digit 5" />
+                <input class="otp-box" maxlength="1" inputmode="numeric" pattern="\d" aria-label="Digit 6" />
+              </div>
+              <span class="field-error" id="err-otp"></span>
+            </div>
+
+            <button class="btn-primary btn-full" id="verify-btn">Verify &amp; Continue</button>
+            <p class="auth-footer">
+              <a href="#" id="resend-code-link">Resend Code</a>
+              &nbsp;·&nbsp;
+              <a href="#" id="back-to-signup">Change Email</a>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── FORGOT PASSWORD VIEW ─── -->
+      <section id="view-forgot" class="view">
+        <div class="auth-container">
+          <div class="auth-card glass-card">
+            <div class="auth-logo">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="1.5">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <h1>Reset Password</h1>
+              <p class="auth-subtitle">Enter your email to receive a reset code</p>
+            </div>
+            <form id="forgot-form" novalidate>
+              <div class="form-group">
+                <label for="forgot-email">Email Address</label>
+                <input type="email" id="forgot-email" placeholder="Enter your account email" autocomplete="email" />
+                <span class="field-error" id="err-forgot-email"></span>
+              </div>
+              <button type="submit" class="btn-primary btn-full" id="send-reset-btn">Send Reset Code</button>
+              <p class="auth-footer">Remember your password? <a href="#" id="back-to-login-from-forgot">Sign In</a></p>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── RESET PASSWORD VIEW ─── -->
+      <section id="view-reset" class="view">
+        <div class="auth-container">
+          <div class="auth-card glass-card">
+            <div class="auth-logo">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="1.5">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              <h1>New Password</h1>
+              <p class="auth-subtitle">Choose a new password for your account</p>
+            </div>
+            <form id="reset-form" novalidate>
+              <div class="form-group">
+                <label for="reset-password">New Password</label>
+                <div class="password-wrap">
+                  <input type="password" id="reset-password" placeholder="Create a new strong password" autocomplete="new-password" />
+                  <button type="button" class="toggle-pw" id="reset-toggle-pw" aria-label="Toggle password visibility">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  </button>
+                </div>
+                <span class="field-error" id="err-reset-password"></span>
+              </div>
+              <div class="form-group">
+                <label for="reset-confirm">Confirm New Password</label>
+                <div class="password-wrap">
+                  <input type="password" id="reset-confirm" placeholder="Re-enter your new password" autocomplete="new-password" />
+                </div>
+                <span class="field-error" id="err-reset-confirm"></span>
+              </div>
+              <button type="submit" class="btn-primary btn-full" id="save-reset-btn">Save New Password</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── BANNED / ACCOUNT DELETED VIEW ─── -->
+      <section id="view-banned" class="view">
+        <div class="auth-container">
+          <div class="auth-card glass-card banned-card">
+            <div class="auth-logo">
+              <svg width="56" height="56" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="14" cy="14" r="13" stroke="#ff4444" stroke-width="2"/>
+                <path d="M10 9 L10 19 L20 14 Z" fill="#ff4444" opacity="0.5"/>
+                <circle cx="14" cy="14" r="3" fill="#7c3aed"/>
+                <line x1="5" y1="5" x2="23" y2="23" stroke="#ff4444" stroke-width="2.5" stroke-linecap="round"/>
+              </svg>
+              <h1 style="color:#ff4444">Account Deleted</h1>
+            </div>
+            <div class="banned-message">
+              <p class="banned-title">⛔ Either banned or disconnected</p>
+              <p class="banned-subtitle">Come back later</p>
+              <p class="banned-hint">If you believe this is an error, please contact support.</p>
+            </div>
+            <div class="banned-countdown">
+              Redirecting in <span id="banned-countdown-secs">10</span>s…
+            </div>
+            <div style="display:flex;gap:12px;margin-top:16px;justify-content:center">
+              <button class="btn-ghost" onclick="showView('login')">Sign In</button>
+              <button class="btn-primary" onclick="showView('signup')">Sign Up</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── PLAYER / HOME VIEW ─── -->
+      <section id="view-player" class="view">
+        <div class="view-content">
+          <div class="search-section">
+            <h2 class="section-title">Discover Music</h2>
+            <div class="search-bar">
+              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input type="text" id="search-input" placeholder="Search songs, artists, albums…" />
+              <button id="search-btn" class="btn-primary">Search</button>
+            </div>
+          </div>
+
+          <!-- Now Playing Panel (visible when a track is selected) -->
+          <div id="np-panel" class="np-panel glass-card hidden">
+            <div class="np-panel-bg" id="np-panel-bg"></div>
+            <button class="np-panel-close" id="np-panel-close" aria-label="Minimize now playing">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
+                <polyline points="18,15 12,9 6,15"/>
+              </svg>
+            </button>
+            <div class="np-panel-artwork">
+              <img id="np-panel-art" src="" alt="Album art" />
+              <div id="np-soundwave" class="soundwave paused">
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+              </div>
+            </div>
+            <div class="np-panel-info">
+              <span class="np-playing-badge">▶ Now Playing</span>
+              <h3 id="np-panel-title" class="np-panel-title"></h3>
+              <p id="np-panel-channel" class="np-panel-channel"></p>
+              <div class="np-panel-actions">
+                <button id="btn-share-song" class="btn-np-action" aria-label="Share song" title="Share song">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                  Share
+                </button>
+                <button id="btn-add-to-queue-np" class="btn-np-action" aria-label="Add to queue" title="Add to queue">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                  Queue
+                </button>
+                <button id="btn-add-np-to-playlist" class="btn-np-action" aria-label="Add to playlist" title="Add to playlist">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Playlist
+                </button>
+              </div>
+              <div class="np-lyrics-area">
+                <div class="np-lyrics-header">
+                  <svg class="np-lyrics-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20">
+                    <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+                  </svg>
+                  <button id="btn-toggle-lyrics" class="btn-lyrics-toggle" title="Show/hide lyrics" aria-label="Toggle lyrics">Lyrics</button>
+                </div>
+                <div id="np-lyrics-body">
+                  <p class="np-lyrics-text">♪ &nbsp;<span id="np-lyrics-content">Audio is playing — enjoy the music</span>&nbsp; ♪</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Play Queue -->
+          <div id="queue-section" class="queue-section hidden">
+            <div class="section-header-row">
+              <h3 class="subsection-title">▶ Play Queue <span id="queue-count-badge" class="queue-count-badge"></span></h3>
+              <button id="btn-clear-queue" class="btn-ghost-sm">Clear</button>
+            </div>
+            <div id="queue-list" class="queue-list"></div>
+          </div>
+
+          <!-- Recently Played -->
+          <div id="recently-played-section" class="recently-played-section hidden">
+            <div class="section-header-row">
+              <h3 class="subsection-title">🕐 Recently Played</h3>
+              <button id="btn-clear-recent" class="btn-ghost-sm">Clear</button>
+            </div>
+            <div id="recently-played-list" class="recently-played-list"></div>
+          </div>
+
+          <!-- Genre chips / Recommended Categories -->
+          <h3 class="subsection-title genre-chips-heading">🎼 Browse Genres</h3>
+          <div class="genre-chips" id="genre-chips">
+            <button class="genre-chip active" data-query="trending songs 2025">🔥 Trending</button>
+            <button class="genre-chip" data-query="NullRaze music" data-channel="UCNullRaze">🎙️ NullRaze</button>
+            <button class="genre-chip" data-query="new music 2025 official audio">🆕 New Releases</button>
+            <button class="genre-chip" data-query="top hits 2025 official music video">🏆 Top Hits</button>
+            <button class="genre-chip" data-query="hip hop rap 2025 official video">🎤 Hip-Hop</button>
+            <button class="genre-chip" data-query="rap songs 2025 best rap music">🎙 Rap</button>
+            <button class="genre-chip" data-query="pop hits 2025 music video">🎵 Pop</button>
+            <button class="genre-chip" data-query="r&amp;b soul 2025 official">🎸 R&amp;B</button>
+            <button class="genre-chip" data-query="rock songs 2025 official video">🎸 Rock</button>
+            <button class="genre-chip" data-query="EDM electronic dance 2025">⚡ Electronic</button>
+            <button class="genre-chip" data-query="house music 2025 official">🏠 House</button>
+            <button class="genre-chip" data-query="techno music 2025">🔊 Techno</button>
+            <button class="genre-chip" data-query="country music 2025 official">🤠 Country</button>
+            <button class="genre-chip" data-query="latin reggaeton 2025">💃 Latin</button>
+            <button class="genre-chip" data-query="bachata salsa music 2025">🌺 Bachata</button>
+            <button class="genre-chip" data-query="kpop k-pop 2025 MV">🌸 K-Pop</button>
+            <button class="genre-chip" data-query="afrobeats 2025 official video">🌍 Afrobeats</button>
+            <button class="genre-chip" data-query="afropop highlife music 2025">🥁 Afropop</button>
+            <button class="genre-chip" data-query="reggae dancehall 2025">🎺 Reggae</button>
+            <button class="genre-chip" data-query="jazz music 2025">🎷 Jazz</button>
+            <button class="genre-chip" data-query="smooth jazz saxophone">🎵 Smooth Jazz</button>
+            <button class="genre-chip" data-query="classical music best symphony">🎻 Classical</button>
+            <button class="genre-chip" data-query="piano music best classical">🎹 Piano</button>
+            <button class="genre-chip" data-query="metal heavy rock 2025">🤘 Metal</button>
+            <button class="genre-chip" data-query="punk rock 2025 official">🤜 Punk</button>
+            <button class="genre-chip" data-query="indie alternative 2025 official">🎼 Indie</button>
+            <button class="genre-chip" data-query="gospel praise worship 2025">🎶 Gospel</button>
+            <button class="genre-chip" data-query="blues soul music best">🎵 Blues</button>
+            <button class="genre-chip" data-query="workout gym motivation 2025">💪 Workout</button>
+            <button class="genre-chip" data-query="lofi chill beats study">☁️ Lo-Fi</button>
+            <button class="genre-chip" data-query="lofi hip hop relax music">🌙 Chill</button>
+            <button class="genre-chip" data-query="sleep music relaxing 2025">😴 Sleep</button>
+            <button class="genre-chip" data-query="meditation focus music concentration">🧘 Focus</button>
+            <button class="genre-chip" data-query="drill trap music 2025">🔫 Drill</button>
+            <button class="genre-chip" data-query="phonk music 2025">🏎️ Phonk</button>
+            <button class="genre-chip" data-query="amapiano south africa 2025">🌀 Amapiano</button>
+            <button class="genre-chip" data-query="dancehall caribbean 2025">🌊 Dancehall</button>
+            <button class="genre-chip" data-query="folk acoustic music best">🌲 Folk</button>
+            <button class="genre-chip" data-query="viking folk music best songs">⚔️ Viking Folk</button>
+            <button class="genre-chip" data-query="dark country music best songs">🌑 Dark Country</button>
+            <button class="genre-chip" data-query="medieval music songs best">🏰 Medieval</button>
+            <button class="genre-chip" data-query="celtic folk music best songs">☘️ Celtic</button>
+            <button class="genre-chip" data-query="gothic music best songs">🦇 Gothic</button>
+            <button class="genre-chip" data-query="darkwave music best songs">🖤 Darkwave</button>
+            <button class="genre-chip" data-query="outlaw country music best songs">🤠 Outlaw Country</button>
+            <button class="genre-chip" data-query="bluegrass music best songs">🪕 Bluegrass</button>
+            <button class="genre-chip" data-query="americana roots music best songs">🌄 Americana</button>
+            <button class="genre-chip" data-query="folk metal music best songs">🛡️ Folk Metal</button>
+            <button class="genre-chip" data-query="black metal music best songs">☠️ Black Metal</button>
+            <button class="genre-chip" data-query="doom metal music best songs">🔮 Doom Metal</button>
+            <button class="genre-chip" data-query="industrial music best songs">⚙️ Industrial</button>
+            <button class="genre-chip" data-query="neo soul music best songs">✨ Neo Soul</button>
+            <button class="genre-chip" data-query="psychedelic rock music best songs">🍄 Psychedelic</button>
+            <button class="genre-chip" data-query="synth wave synthwave music best songs">🌆 Synthwave</button>
+            <button class="genre-chip" data-query="bossa nova jazz music best songs">🎶 Bossa Nova</button>
+            <button class="genre-chip" data-query="flamenco music best songs">💃 Flamenco</button>
+            <button class="genre-chip" data-query="opera classical vocal best songs">🎭 Opera</button>
+            <button class="genre-chip" data-query="anime music ost soundtrack">🎌 Anime OST</button>
+            <button class="genre-chip" data-query="video game soundtrack music">🎮 Game OST</button>
+            <button class="genre-chip" data-query="movie soundtrack film score best">🎬 Film Score</button>
+            <button class="genre-chip" data-query="old school 90s hip hop classics">📻 Old School</button>
+            <button class="genre-chip" data-query="2000s throwback hits music">🕰️ 2000s</button>
+            <button class="genre-chip" data-query="80s 90s classic hits best songs">💿 80s &amp; 90s</button>
+          </div>
+          <div id="search-results" class="results-grid"></div>
+          <div id="no-results" class="empty-state hidden">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <p>No results found. Try a different search.</p>
+          </div>
+          <div id="search-placeholder" class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="64" height="64">
+              <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+            </svg>
+            <p>Search for music to get started</p>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ─── LIKED SONGS VIEW ─── -->
+      <section id="view-liked" class="view">
+        <div class="view-content">
+          <div class="liked-header">
+            <div class="liked-title-wrap">
+              <div class="liked-icon-bg">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 class="section-title" style="margin-bottom:2px">Liked Songs</h2>
+                <p id="liked-count-label" class="section-subtitle" style="margin-bottom:0">0 songs</p>
+              </div>
+            </div>
+            <button id="btn-play-liked" class="btn-primary liked-play-all hidden">▶ Play All</button>
+          </div>
+          <div class="liked-sort-bar">
+            <label for="liked-sort" class="sort-label">Sort by:</label>
+            <select id="liked-sort" class="select-input liked-sort-select">
+              <option value="date-desc">Recently Added</option>
+              <option value="date-asc">Oldest First</option>
+              <option value="title-asc">Title A–Z</option>
+              <option value="title-desc">Title Z–A</option>
+              <option value="channel">Channel</option>
+            </select>
+          </div>
+          <div id="liked-grid" class="results-grid"></div>
+          <div id="liked-empty" class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="64" height="64">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+            </svg>
+            <p>No liked songs yet. Hit ♥ on any song to save it here.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── PROFILE VIEW ─── -->
+      <section id="view-profile" class="view">
+        <div class="view-content">
+          <h2 class="section-title">My Profile</h2>
+          <div class="profile-card glass-card">
+            <div class="avatar-wrap">
+              <div id="profile-avatar" class="avatar">A</div>
+              <label class="avatar-upload-btn" for="avatar-file-input" title="Change profile picture">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+                </svg>
+              </label>
+              <input type="file" id="avatar-file-input" accept="image/*" class="hidden" />
+            </div>
+            <div class="profile-info">
+              <h3 id="profile-username" class="profile-name"></h3>
+              <p id="profile-email" class="profile-email"></p>
+              <p id="profile-since" class="profile-since"></p>
+            </div>
+            <button class="btn-secondary" id="edit-profile-btn">Edit Profile</button>
+          </div>
+
+          <!-- Inline Edit Profile Form (hidden by default) -->
+          <div id="edit-profile-section" class="edit-profile-section glass-card hidden">
+            <h3 class="edit-section-title">Edit Profile</h3>
+            <form id="edit-profile-form" novalidate>
+              <div class="form-group">
+                <label for="ep-username">Username</label>
+                <input type="text" id="ep-username" placeholder="Your username" autocomplete="username" />
+                <span class="field-error" id="err-ep-username"></span>
+              </div>
+              <div class="form-group">
+                <label for="ep-email">Email Address</label>
+                <input type="email" id="ep-email" placeholder="Your email address" autocomplete="email" />
+                <span class="field-error" id="err-ep-email"></span>
+              </div>
+              <div class="edit-profile-actions">
+                <button type="submit" class="btn-primary" id="save-profile-btn">Save Changes</button>
+                <button type="button" id="cancel-edit-btn" class="btn-secondary">Cancel</button>
+              </div>
+            </form>
+
+            <div class="divider"></div>
+
+            <h3 class="edit-section-title">Change Password</h3>
+            <form id="change-password-form" novalidate>
+              <div class="form-group">
+                <label for="cp-current">Current Password</label>
+                <div class="password-wrap">
+                  <input type="password" id="cp-current" placeholder="Enter current password" autocomplete="current-password" />
+                </div>
+                <span class="field-error" id="err-cp-current"></span>
+              </div>
+              <div class="form-group">
+                <label for="cp-new">New Password</label>
+                <div class="password-wrap">
+                  <input type="password" id="cp-new" placeholder="Create a new password (min 8 chars)" autocomplete="new-password" />
+                </div>
+                <span class="field-error" id="err-cp-new"></span>
+              </div>
+              <div class="form-group">
+                <label for="cp-confirm">Confirm New Password</label>
+                <div class="password-wrap">
+                  <input type="password" id="cp-confirm" placeholder="Re-enter new password" autocomplete="new-password" />
+                </div>
+                <span class="field-error" id="err-cp-confirm"></span>
+              </div>
+              <button type="submit" class="btn-primary" id="save-password-btn">Update Password</button>
+            </form>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-card glass-card">
+              <span class="stat-value" id="stat-songs-played">0</span>
+              <span class="stat-label">Songs Played</span>
+            </div>
+            <div class="stat-card glass-card">
+              <span class="stat-value" id="stat-liked-songs">0</span>
+              <span class="stat-label">Liked Songs</span>
+            </div>
+            <div class="stat-card glass-card">
+              <span class="stat-value">7</span>
+              <span class="stat-label">Playlists</span>
+            </div>
+            <div class="stat-card glass-card">
+              <span class="stat-value" id="stat-fav-genre">—</span>
+              <span class="stat-label">Favorite Genre</span>
+            </div>
+            <div class="stat-card glass-card">
+              <span class="stat-value" id="stat-hours">0</span>
+              <span class="stat-label">Hours Listened</span>
+            </div>
+          </div>
+
+          <!-- Plan perks card -->
+          <div class="profile-plan-card glass-card">
+            <div class="profile-plan-header">
+              <div>
+                <p class="profile-plan-label">Your Plan</p>
+                <h3 id="profile-plan-name" class="profile-plan-name">Free</h3>
+              </div>
+              <span id="profile-plan-badge" class="plan-badge hidden"></span>
+            </div>
+            <ul class="profile-plan-perks" id="profile-plan-perks"></ul>
+            <button class="btn-primary btn-full" id="btn-profile-upgrade" onclick="showView('upgrade')">⭐ Upgrade to Pro Pack</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── UPGRADE VIEW ─── -->
+      <section id="view-upgrade" class="view">
+        <div class="view-content">
+          <h2 class="section-title">Upgrade Your Plan</h2>
+          <p class="section-subtitle">Unlock the full Cipher experience</p>
+
+          <!-- Current Plan Banner -->
+          <div id="current-plan-banner" class="current-plan-banner glass-card">
+            <div class="current-plan-info">
+              <p class="current-plan-label">Current Plan</p>
+              <h3 id="current-plan-name" class="current-plan-name">Free</h3>
+            </div>
+            <span id="current-plan-badge" class="plan-status-badge">Active</span>
+          </div>
+
+          <div class="plans-grid">
+            <div class="plan-card glass-card" data-plan="free">
+              <h3 class="plan-name">Free</h3>
+              <div class="plan-price">$0<span>/mo</span></div>
+              <ul class="plan-features">
+                <li>Standard audio quality</li>
+                <li>Ad-supported</li>
+                <li>Unlimited search</li>
+                <li>3 playlists max</li>
+              </ul>
+              <button class="btn-outline plan-select-btn" data-plan="free">Select Free</button>
+            </div>
+            <div class="plan-card glass-card plan-featured" data-plan="pro">
+              <div class="plan-badge">Most Popular</div>
+              <h3 class="plan-name">Pro Pack</h3>
+              <div class="plan-price">$9.99<span>/mo</span></div>
+              <ul class="plan-features">
+                <li>✓ High quality audio</li>
+                <li>✓ Ad-free listening</li>
+                <li>✓ Unlimited playlists</li>
+                <li>✓ Sleep timer</li>
+                <li>✓ Playback speed control</li>
+                <li>✓ Download history</li>
+              </ul>
+              <button class="btn-primary plan-select-btn" data-plan="pro">Select Pro Pack</button>
+            </div>
+            <div class="plan-card glass-card" data-plan="premium">
+              <h3 class="plan-name">Premium</h3>
+              <div class="plan-price">$19.99<span>/mo</span></div>
+              <ul class="plan-features">
+                <li>✓ Everything in Pro Pack</li>
+                <li>✓ Lossless audio quality</li>
+                <li>✓ Custom equalizer presets</li>
+                <li>✓ Custom accent colour</li>
+                <li>✓ Exclusive genres &amp; content</li>
+                <li>✓ Priority support</li>
+              </ul>
+              <button class="btn-outline plan-select-btn" data-plan="premium">Select Premium</button>
+            </div>
+          </div>
+
+          <!-- Payment Form -->
+          <div id="payment-form-section" class="payment-section glass-card hidden">
+            <h3 class="payment-title">Complete Your Subscription</h3>
+            <p class="payment-selected-plan" id="selected-plan-label">Pro Pack — $9.99/mo</p>
+
+            <!-- How to pay — method selector -->
+            <div class="payment-methods">
+              <label class="payment-method-card stripe-method" style="cursor:pointer;">
+                <input type="radio" name="pay-method" id="method-stripe" value="stripe" checked style="margin-right:8px;" />
+                <span class="payment-method-title" style="display:inline;">💳 Card (Stripe)</span>
+                <p class="cashapp-note" style="margin-top:6px;">Secure checkout powered by Stripe.</p>
+              </label>
+              <label class="payment-method-card cashapp-method" style="cursor:pointer;">
+                <input type="radio" name="pay-method" id="method-cashapp" value="cashapp" style="margin-right:8px;" />
+                <span class="payment-method-title" style="display:inline;">💚 CashApp</span>
+                <p class="cashapp-note" style="margin-top:6px;">Send payment to the owner's CashApp.</p>
+              </label>
+            </div>
+
+            <!-- Enter name + email -->
+            <form id="payment-form" novalidate>
+              <h4 class="payment-confirm-title">Your Details</h4>
+              <div class="form-group">
+                <label for="pay-name">Your Name</label>
+                <input type="text" id="pay-name" placeholder="Jane Doe" autocomplete="name" />
+                <span class="field-error" id="err-pay-name"></span>
+              </div>
+              <div class="form-group">
+                <label for="pay-email">Your Email (activation code will be sent here)</label>
+                <input type="email" id="pay-email" placeholder="you@example.com" autocomplete="email" />
+                <span class="field-error" id="err-pay-email"></span>
+              </div>
+
+              <!-- Stripe card block -->
+              <div id="stripe-card-block">
+                <h4 class="payment-confirm-title">Card Details</h4>
+                <div id="stripe-card-element" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:12px 10px;"></div>
+                <span class="field-error" id="err-stripe-card"></span>
+              </div>
+
+              <!-- CashApp instructions block (hidden by default) -->
+              <div id="cashapp-payment-block" class="hidden">
+                <h4 class="payment-confirm-title">Send Payment via CashApp</h4>
+                <div class="cashapp-info">
+                  <p class="cashapp-label">Send payment to:</p>
+                  <a id="cashapp-tag-link" class="cashapp-tag" href="#" target="_blank" rel="noopener noreferrer"></a>
+                  <p class="cashapp-label">Amount: <strong id="cashapp-amount-value"></strong></p>
+                  <p class="cashapp-note">⚠️ Include your payment reference <strong>and your email address</strong> in the CashApp note so the owner can match your payment:</p>
+                  <p class="cashapp-tag" style="font-size:1.1rem;letter-spacing:0.05em;" id="cashapp-ref-value">—</p>
+                  <p class="cashapp-note" style="margin-top:4px;">Example note: <em id="cashapp-note-example">CPH-XXXXXXXX · you@example.com</em></p>
+                </div>
+              </div>
+
+              <button type="submit" id="payment-submit-btn" class="btn-primary btn-full" style="margin-top:18px;">Pay with Card →</button>
+            </form>
+
+            <!-- Activation code entry (shown after payment is submitted) -->
+            <div id="payment-activation-section" class="hidden">
+              <h4 class="payment-confirm-title">Enter Your Activation Code</h4>
+              <p class="cashapp-note">Once the owner confirms your payment, they'll email you a 10-character activation code. Enter it below to unlock your plan.</p>
+              <div class="form-group">
+                <label for="activation-code-input">Activation Code</label>
+                <input type="text" id="activation-code-input" placeholder="e.g. A1B2C3D4E5" maxlength="10"
+                       autocapitalize="characters" autocomplete="off" spellcheck="false"
+                       aria-label="Activation code" aria-describedby="err-activation-code" />
+                <span class="field-error" id="err-activation-code" role="alert"></span>
+              </div>
+              <button id="btn-activate-plan" class="btn-primary btn-full">Activate Plan</button>
+            </div>
+
+            <div id="payment-success" class="success-message hidden">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2" width="48" height="48">
+                <polyline points="20,6 9,17 4,12"/>
+              </svg>
+              <h4 id="payment-success-title">You're now a Cipher Pro Pack member! 🎉</h4>
+              <p>Thank you for subscribing. Your plan is now active — enjoy the full Cipher experience.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── PLAYLISTS VIEW ─── -->
+      <section id="view-playlists" class="view">
+        <div class="view-content">
+          <div id="playlists-list-view">
+            <div class="playlists-header">
+              <h2 class="section-title">My Playlists</h2>
+              <button id="btn-create-playlist" class="btn-primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" style="vertical-align:-2px;margin-right:6px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New Playlist
+              </button>
+            </div>
+            <div id="playlists-grid" class="playlists-grid"></div>
+            <div id="playlists-empty" class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="64" height="64">
+                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+                <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
+                <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+              </svg>
+              <p>No playlists yet. Click "New Playlist" to create one.</p>
+            </div>
+          </div>
+
+          <!-- Playlist Detail (shown when a playlist is opened) -->
+          <div id="playlist-detail-view" class="hidden">
+            <div class="playlist-detail-header">
+              <button id="btn-back-playlists" class="btn-secondary">← Back</button>
+              <div class="playlist-detail-title-wrap">
+                <div class="playlist-detail-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="28" height="28">
+                    <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+                    <line x1="8" y1="18" x2="21" y2="18"/>
+                  </svg>
+                </div>
+                <div>
+                  <h2 class="section-title" style="margin-bottom:2px" id="playlist-detail-name"></h2>
+                  <p id="playlist-detail-count" class="section-subtitle" style="margin-bottom:0">0 songs</p>
+                </div>
+              </div>
+              <div class="playlist-detail-actions">
+                <button id="btn-play-playlist" class="btn-primary hidden">▶ Play All</button>
+                <button id="btn-rename-playlist" class="btn-secondary">✎ Rename</button>
+                <button id="btn-delete-playlist" class="btn-danger">Delete</button>
+              </div>
+            </div>
+            <div id="playlist-detail-grid" class="results-grid"></div>
+            <div id="playlist-detail-empty" class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
+                <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+              </svg>
+              <p>This playlist is empty. Add songs from the Music tab.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── SETTINGS VIEW ─── -->
+      <section id="view-settings" class="view">
+        <div class="view-content">
+          <h2 class="section-title">Settings</h2>
+
+          <div class="settings-group glass-card">
+            <h3 class="settings-group-title">Playback</h3>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Autoplay</span>
+                <span class="setting-desc">Automatically play next track</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="toggle-autoplay" checked />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="setting-row" data-requires="pro">
+              <div class="setting-info">
+                <span class="setting-name">High Quality Audio <span class="tier-lock-badge badge-pro">⭐ Pro</span></span>
+                <span class="setting-desc">Stream at highest available quality</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="toggle-hq" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Shuffle</span>
+                <span class="setting-desc">Play tracks in random order</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="toggle-shuffle" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Repeat Mode</span>
+                <span class="setting-desc">How tracks repeat after finishing</span>
+              </div>
+              <select id="repeat-mode" class="select-input">
+                <option value="off">Off</option>
+                <option value="all">Repeat All</option>
+                <option value="one">Repeat One</option>
+              </select>
+            </div>
+            <div class="setting-row" data-requires="pro">
+              <div class="setting-info">
+                <span class="setting-name">Playback Speed <span class="tier-lock-badge badge-pro">⭐ Pro</span></span>
+                <span class="setting-desc">Adjust how fast tracks play</span>
+              </div>
+              <select id="playback-speed" class="select-input">
+                <option value="0.75">0.75×</option>
+                <option value="1" selected>1× (Normal)</option>
+                <option value="1.25">1.25×</option>
+                <option value="1.5">1.5×</option>
+                <option value="2">2×</option>
+              </select>
+            </div>
+            <div class="setting-row" data-requires="pro">
+              <div class="setting-info">
+                <span class="setting-name">⏱️ Sleep Timer <span class="tier-lock-badge badge-pro">⭐ Pro</span></span>
+                <span class="setting-desc">Auto-pause playback after a set time</span>
+              </div>
+              <select id="sleep-timer-select" class="select-input">
+                <option value="0">Off</option>
+                <option value="15">15 minutes</option>
+                <option value="30">30 minutes</option>
+                <option value="45">45 minutes</option>
+                <option value="60">60 minutes</option>
+                <option value="90">90 minutes</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-group glass-card">
+            <h3 class="settings-group-title">Equalizer Preset</h3>
+            <div class="setting-row" data-requires="premium">
+              <div class="setting-info">
+                <span class="setting-name">EQ Preset <span class="tier-lock-badge badge-premium">💎 Premium</span></span>
+                <span class="setting-desc">Choose a sound profile</span>
+              </div>
+              <select id="eq-preset" class="select-input">
+                <option value="flat">Flat (Default)</option>
+                <option value="bass-boost">Bass Boost</option>
+                <option value="treble-boost">Treble Boost</option>
+                <option value="vocal">Vocal / Podcast</option>
+                <option value="electronic">Electronic</option>
+                <option value="acoustic">Acoustic</option>
+                <option value="classical">Classical</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-group glass-card">
+            <h3 class="settings-group-title">Display</h3>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Show Soundwave</span>
+                <span class="setting-desc">Display animated soundwave while playing</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="toggle-soundwave" checked />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Show Notifications</span>
+                <span class="setting-desc">Get alerts for new releases</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="toggle-notifications" checked />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Dark Mode</span>
+                <span class="setting-desc">Use dark theme across the app</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="toggle-dark-mode" checked />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Language</span>
+                <span class="setting-desc">Choose your preferred language</span>
+              </div>
+              <select id="language-select" class="select-input">
+                <option value="en">English</option>
+                <option value="es">Español</option>
+                <option value="fr">Français</option>
+                <option value="de">Deutsch</option>
+                <option value="ja">日本語</option>
+                <option value="pt">Português</option>
+              </select>
+            </div>
+            <div class="setting-row" data-requires="premium">
+              <div class="setting-info">
+                <span class="setting-name">🎨 Accent Colour <span class="tier-lock-badge badge-premium">💎 Premium</span></span>
+                <span class="setting-desc">Personalise the app highlight colour</span>
+              </div>
+              <div class="accent-picker-wrap">
+                <input type="color" id="accent-color-picker" value="#00d4ff" class="accent-color-input" title="Choose accent colour" />
+                <button id="btn-reset-accent" class="btn-ghost-sm">Reset</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-group glass-card">
+            <h3 class="settings-group-title">Keyboard Shortcuts</h3>
+            <div class="setting-row">
+              <div class="setting-info"><span class="setting-name">Space</span><span class="setting-desc">Play / Pause</span></div>
+              <kbd class="shortcut-kbd">Space</kbd>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info"><span class="setting-name">Arrow Left / Right</span><span class="setting-desc">Previous / Next track</span></div>
+              <span class="shortcut-kbd">← →</span>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info"><span class="setting-name">L</span><span class="setting-desc">Like / unlike current song</span></div>
+              <kbd class="shortcut-kbd">L</kbd>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info"><span class="setting-name">M</span><span class="setting-desc">Mute / unmute</span></div>
+              <kbd class="shortcut-kbd">M</kbd>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info"><span class="setting-name">Q</span><span class="setting-desc">Add current song to queue</span></div>
+              <kbd class="shortcut-kbd">Q</kbd>
+            </div>
+          </div>
+
+          <div class="settings-group glass-card">
+            <h3 class="settings-group-title">Install App</h3>
+            <!-- Shown on Android/Desktop when browser fires beforeinstallprompt -->
+            <div class="setting-row" id="install-prompt-row" style="display:none;">
+              <div class="setting-info">
+                <span class="setting-name">📲 Install Cipher Music</span>
+                <span class="setting-desc">Add to your home screen for the full app experience</span>
+              </div>
+              <button id="btn-install-app" class="btn-primary">Install App</button>
+            </div>
+            <!-- Always-visible fallback row -->
+            <div class="setting-row" id="install-manual-row">
+              <div class="setting-info">
+                <span class="setting-name">Add to Home Screen</span>
+                <span class="setting-desc">Install Cipher Music as an app on your device</span>
+              </div>
+              <button id="btn-install-app-fallback" class="btn-secondary">Install</button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">🍎 iOS (Safari)</span>
+                <span class="setting-desc">Tap the Share icon (□↑) → "Add to Home Screen"</span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">🤖 Android (Chrome)</span>
+                <span class="setting-desc">Tap the menu (⋮) → "Add to Home Screen" or use the Install button above</span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">🖥️ Desktop (Chrome/Edge)</span>
+                <span class="setting-desc">Click the install icon (⊕) in the address bar or use the Install button above</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-group glass-card">
+            <h3 class="settings-group-title">Privacy &amp; Data</h3>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Listening History</span>
+                <span class="setting-desc">Clear your play count and history</span>
+              </div>
+              <button id="btn-clear-history" class="btn-secondary">Clear History</button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Export My Data</span>
+                <span class="setting-desc">Download a copy of your account data</span>
+              </div>
+              <button id="btn-export-data" class="btn-secondary">Export</button>
+            </div>
+          </div>
+
+          <div class="settings-group glass-card">
+            <h3 class="settings-group-title">Support</h3>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Customer Support</span>
+                <span class="setting-desc">Get help from our team</span>
+              </div>
+              <a href="mailto:demosn505@gmail.com" class="btn-secondary" style="text-decoration:none">Email Us</a>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">App Version</span>
+                <span class="setting-desc">Cipher Music v3.0</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-group glass-card">
+            <h3 class="settings-group-title">Account</h3>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Change Password</span>
+                <span class="setting-desc">Update your account password</span>
+              </div>
+              <button id="btn-change-password" class="btn-secondary">Change</button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Transfer to another device</span>
+                <span class="setting-desc">Generate a code to sign in on your phone or iPad</span>
+              </div>
+              <button id="btn-device-code" class="btn-secondary">Get Code</button>
+            </div>
+            <div class="setting-row">
+              <button id="btn-signout" class="btn-secondary">Sign Out</button>
+              <button id="btn-delete-account" class="btn-danger">Delete Account</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Player Bar and YouTube player — hoisted to body level so they remain
+       visible on every view (position:fixed inside a display:none parent is
+       hidden on all browsers, which broke playback controls when navigating
+       away from the player view). -->
+  <div id="player-bar" class="player-bar hidden">
+    <div class="now-playing">
+      <img id="np-thumb" src="" alt="Now playing thumbnail" class="np-thumb" />
+      <div class="np-info">
+        <p id="np-title" class="np-title"></p>
+        <p id="np-channel" class="np-channel"></p>
+      </div>
+    </div>
+    <div class="player-controls">
+      <!-- Previous track -->
+      <button id="btn-prev" class="ctrl-btn" aria-label="Previous track" title="Previous">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
+          <rect x="5" y="4" width="2" height="16"/><polygon points="19,4 9,12 19,20"/>
+        </svg>
+      </button>
+      <!-- Replay current track from start -->
+      <button id="btn-replay" class="ctrl-btn" aria-label="Replay track" title="Replay">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+          <polyline points="1,4 1,10 7,10"/><path d="M3.51 15a9 9 0 1 0 .49-3.87"/>
+        </svg>
+      </button>
+      <button id="btn-play-pause" class="ctrl-btn" aria-label="Play/Pause">
+        <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+          <polygon points="5,3 19,12 5,21"/>
+        </svg>
+        <svg id="pause-icon" viewBox="0 0 24 24" fill="currentColor" width="24" height="24" class="hidden">
+          <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+        </svg>
+      </button>
+      <button id="btn-next" class="ctrl-btn" aria-label="Next track" title="Next">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
+          <polygon points="5,4 15,12 5,20"/><rect x="17" y="4" width="2" height="16"/>
+        </svg>
+      </button>
+      <!-- Shuffle toggle -->
+      <button id="btn-shuffle" class="ctrl-btn shuffle-btn" aria-label="Shuffle" title="Shuffle" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+          <polyline points="16,3 21,3 21,8"/><line x1="4" y1="20" x2="21" y2="3"/>
+          <polyline points="21,16 21,21 16,21"/><line x1="15" y1="15" x2="21" y2="21"/>
+        </svg>
+      </button>
+      <!-- Repeat cycle: off → all → one → off -->
+      <button id="btn-repeat" class="ctrl-btn repeat-btn" aria-label="Repeat" title="Repeat: Off" data-mode="off">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+          <polyline points="17,1 21,5 17,9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+          <polyline points="7,23 3,19 7,15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+        </svg>
+      </button>
+    </div>
+    <div class="volume-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+        <polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+      </svg>
+      <input type="range" id="volume-slider" min="0" max="100" value="80" class="volume-slider" aria-label="Volume" />
+    </div>
+    <button id="btn-video-mode" class="ctrl-btn video-mode-btn" aria-label="Toggle video mode" title="Video Mode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+        <rect x="2" y="7" width="15" height="10" rx="2"/><path d="m17 8 5-3v12l-5-3"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- YouTube IFrame container — hidden (audio-only) or visible (video mode) -->
+  <div id="yt-player-container" class="yt-hidden">
+    <div class="yt-video-controls">
+      <button id="btn-close-video" class="btn-close-video" aria-label="Close video">✕</button>
+      <button id="btn-fullscreen-video" class="btn-fullscreen-video" aria-label="Fullscreen video" title="Fullscreen">⛶</button>
+    </div>
+    <div id="yt-player"></div>
+  </div>
+
+  <!-- Ad Overlay (shown for free users every 5 songs) -->
+  <div id="ad-overlay" class="ad-overlay hidden" role="dialog" aria-modal="true" aria-label="Advertisement">
+    <div class="ad-card glass-card">
+      <div class="ad-header">
+        <span class="ad-label">Advertisement</span>
+        <span id="ad-countdown" class="ad-countdown">5</span>
+      </div>
+      <div class="ad-content">
+        <div class="ad-art">
+          <svg viewBox="0 0 80 80" width="80" height="80">
+            <circle cx="40" cy="40" r="38" fill="url(#ag)" stroke="#00d4ff" stroke-width="2"/>
+            <defs><radialGradient id="ag" cx="50%" cy="50%"><stop offset="0%" stop-color="#7c3aed"/><stop offset="100%" stop-color="#0f0f1a"/></radialGradient></defs>
+            <path d="M28 26 L28 54 L56 40 Z" fill="#00d4ff"/>
+          </svg>
+        </div>
+        <div class="ad-text">
+          <h3>Enjoying Cipher Music?</h3>
+          <p>Upgrade to <strong>Pro</strong> for ad-free listening, high-quality audio, and unlimited skips.</p>
+          <div class="ad-actions">
+            <button class="btn-primary" id="btn-ad-upgrade">Upgrade Now — $9.99/mo</button>
+            <button class="btn-ghost" id="btn-ad-skip" disabled>Skip in <span id="ad-skip-seconds">5</span>s</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notification container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <!-- ── Modal: Changelog / What's New ── -->
+  <div id="modal-changelog" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="changelog-title">
+    <div class="modal-overlay" id="modal-changelog-overlay"></div>
+    <div class="modal-card glass-card">
+      <div class="changelog-emoji">🎉</div>
+      <h3 id="changelog-title">What's New in v3.0</h3>
+      <p>Cipher Music just got a major update:</p>
+      <ul class="changelog-list">
+        <li>🎼 <strong>Genre Browser</strong> — all genres visible in a clean wrap grid, no more hidden scroll</li>
+        <li>📱 <strong>Mobile &amp; iOS Genres</strong> — bigger tap targets and readable chips on every screen size</li>
+        <li>🗂️ <strong>Playlists</strong> — create and manage your own playlists</li>
+        <li>⏱️ <strong>Sleep Timer</strong> — auto-pause after X minutes</li>
+        <li>▶ <strong>Play Queue</strong> — queue up songs to play next</li>
+        <li>⌨️ <strong>Keyboard Shortcuts</strong> — Space, ←→, L, M, Q</li>
+        <li>🎨 <strong>Accent Colour</strong> — personalise the app colour</li>
+        <li>📤 <strong>Share Song</strong> — share what you're listening to</li>
+        <li>🖼️ <strong>Art Background</strong> — blurred album art in Now Playing</li>
+        <li>📱 <strong>Cross-device</strong> — improved mobile, tablet &amp; iPad layout</li>
+        <li>🔒 <strong>Lock Screen Controls</strong> — play/pause from lock screen</li>
+        <li>🎬 <strong>Video Player</strong> — full-screen video with playsinline on iOS</li>
+      </ul>
+      <button id="btn-close-changelog" class="btn-primary btn-full" style="margin-top:16px">Let's Go! 🚀</button>
+    </div>
+  </div>
+
+  <!-- ── Modal: Show Device Code ── -->
+  <div id="modal-device-code" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="device-code-title">
+    <div class="modal-overlay" id="modal-device-code-overlay"></div>
+    <div class="modal-card glass-card" style="text-align:center">
+      <div class="changelog-emoji">📱</div>
+      <h3 id="device-code-title">Device Transfer Code</h3>
+      <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px">Open Cipher Music on your other device, tap <strong>Use a device code</strong> on the sign-in screen, then enter this code. Your recently played songs will also be transferred.</p>
+      <div id="device-code-display" style="font-family:monospace;font-size:1.1rem;letter-spacing:0.12em;background:rgba(255,255,255,0.05);border-radius:8px;padding:14px;margin-bottom:12px;word-break:break-all;user-select:all"></div>
+      <button id="btn-copy-device-code" class="btn-secondary btn-full" style="margin-bottom:8px">📋 Copy Code</button>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:12px">⚠️ Keep this code private — anyone with it can access your account.</p>
+      <button id="btn-close-device-code" class="btn-primary btn-full">Done</button>
+    </div>
+  </div>
+
+  <!-- ── Modal: Import Device Code ── -->
+  <div id="modal-import-code" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="import-code-title">
+    <div class="modal-overlay" id="modal-import-code-overlay"></div>
+    <div class="modal-card glass-card">
+      <h3 id="import-code-title">Restore from Device Code</h3>
+      <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:16px">Paste the device code you generated on your other device.</p>
+      <div class="form-group">
+        <label for="device-code-input">Device Code</label>
+        <input type="text" id="device-code-input" placeholder="Paste code here"
+               autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" />
+        <span class="field-error" id="err-device-code"></span>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button id="btn-cancel-import-code" class="btn-secondary" style="flex:1">Cancel</button>
+        <button id="btn-submit-import-code" class="btn-primary" style="flex:1">Restore Account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Create Playlist ── -->
+  <div id="modal-create-playlist" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="create-playlist-title">
+    <div class="modal-overlay" id="modal-create-playlist-overlay"></div>
+    <div class="modal-card glass-card">
+      <h3 id="create-playlist-title">New Playlist</h3>
+      <p style="margin-bottom:16px">Give your playlist a name</p>
+      <div class="form-group" style="text-align:left">
+        <label for="new-playlist-name">Playlist Name</label>
+        <input type="text" id="new-playlist-name" placeholder="e.g. Summer Vibes" maxlength="60" />
+        <span class="field-error" id="err-playlist-name"></span>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-confirm-create-playlist" class="btn-primary">Create</button>
+        <button id="btn-cancel-create-playlist" class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Rename Playlist ── -->
+  <div id="modal-rename-playlist" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-overlay" id="modal-rename-playlist-overlay"></div>
+    <div class="modal-card glass-card">
+      <h3>Rename Playlist</h3>
+      <div class="form-group" style="text-align:left">
+        <label for="rename-playlist-name">New Name</label>
+        <input type="text" id="rename-playlist-name" placeholder="Playlist name" maxlength="60" />
+        <span class="field-error" id="err-rename-playlist"></span>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-confirm-rename-playlist" class="btn-primary">Save</button>
+        <button id="btn-cancel-rename-playlist" class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Add to Playlist picker ── -->
+  <div id="modal-add-to-playlist" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-overlay" id="modal-add-to-playlist-overlay"></div>
+    <div class="modal-card glass-card">
+      <h3>Add to Playlist</h3>
+      <p>Choose a playlist or create a new one</p>
+      <div id="playlist-picker-list" class="playlist-picker-list"></div>
+      <button id="btn-new-playlist-from-picker" class="btn-outline btn-full" style="margin-top:12px">+ Create New Playlist</button>
+      <button id="btn-cancel-add-to-playlist" class="btn-ghost btn-full" style="margin-top:8px">Cancel</button>
+    </div>
+  </div>
+
+
+  <!-- ── Admin PIN Entry Modal (password-masked, no prompt()) ── -->
+  <div id="admin-pin-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Admin PIN entry">
+    <div class="modal-overlay" onclick="document.getElementById('admin-pin-modal').classList.add('hidden')"></div>
+    <div class="modal-card glass-card" style="max-width:320px;text-align:center">
+      <h3>🔐 Cipher Admin</h3>
+      <p style="font-size:0.85rem;margin-bottom:16px;color:var(--text-secondary)">Enter your admin PIN to continue</p>
+      <div class="form-group" style="text-align:left">
+        <label for="admin-pin-input">PIN</label>
+        <input type="password" id="admin-pin-input" inputmode="numeric" pattern="\d*"
+               placeholder="••••" autocomplete="off" maxlength="20"
+               onkeydown="if(event.key==='Enter')submitAdminPin()" />
+      </div>
+      <button class="btn-primary btn-full" onclick="submitAdminPin()">Unlock</button>
+      <button class="btn-ghost btn-full" style="margin-top:8px"
+              onclick="document.getElementById('admin-pin-modal').classList.add('hidden')">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ── Admin / Debug Panel (Ctrl+Shift+D or ?debug=1) ── -->
+  <div id="admin-panel" class="admin-panel" role="complementary" aria-label="Admin panel">
+    <div class="admin-panel-header">
+      <span class="admin-panel-title">🛠 Cipher Admin</span>
+      <button class="admin-close-btn" onclick="closeAdminPanel()" aria-label="Close admin panel">✕</button>
+    </div>
+    <div class="admin-panel-body">
+
+      <!-- First-time PIN setup (shown only when no PIN is set yet) -->
+      <section id="admin-setup-section" class="admin-section hidden">
+        <h4 class="admin-section-title">⚙️ First-Time Setup</h4>
+        <p class="admin-hint" style="margin-bottom:10px">No admin PIN is set yet. Create a PIN (4+ digits) to secure this panel.</p>
+        <div class="form-group">
+          <label for="admin-new-pin-input">New PIN (digits only, min 4)</label>
+          <input type="password" id="admin-new-pin-input" inputmode="numeric" pattern="\d*"
+                 placeholder="e.g. 1234" maxlength="20" autocomplete="new-password"
+                 onkeydown="if(event.key==='Enter')adminSetInitialPin()" />
+        </div>
+        <button class="btn-primary btn-full" onclick="adminSetInitialPin()">Set PIN &amp; Unlock Panel</button>
+      </section>
+
+      <!-- Main panel sections (hidden until authenticated) -->
+      <div id="admin-main-sections">
+
+        <!-- Payments -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">💰 Payments <button class="admin-clear-log-btn" onclick="renderAdminPayments()">Refresh</button></h4>
+          <div id="admin-payments-list"><p class="admin-hint">No payment requests logged yet.</p></div>
+        </section>
+
+        <!-- Registered Users -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">👥 Users <button class="admin-clear-log-btn" onclick="renderAdminUsers()">Refresh</button></h4>
+          <div id="admin-users-list"><p class="admin-hint">No registered accounts.</p></div>
+        </section>
+
+        <!-- Ban / Unban by Email -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">🚫 Ban / Unban by Email</h4>
+          <div class="form-group" style="margin-bottom:8px">
+            <label for="admin-ban-email-input">Ban email</label>
+            <div style="display:flex;gap:8px">
+              <input type="email" id="admin-ban-email-input" placeholder="user@example.com"
+                     maxlength="100" autocomplete="off"
+                     onkeydown="if(event.key==='Enter')adminBanByEmail()" />
+              <button class="btn-outline" style="flex-shrink:0" onclick="adminBanByEmail()">Ban</button>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:8px">
+            <label for="admin-unban-email-input">Unban email</label>
+            <div style="display:flex;gap:8px">
+              <input type="email" id="admin-unban-email-input" placeholder="user@example.com"
+                     maxlength="100" autocomplete="off"
+                     onkeydown="if(event.key==='Enter')adminUnbanByEmail()" />
+              <button class="btn-outline" style="flex-shrink:0" onclick="adminUnbanByEmail()">Unban</button>
+            </div>
+          </div>
+          <h5 class="admin-section-title" style="font-size:0.8rem;margin-top:10px">
+            Banned Emails <button class="admin-clear-log-btn" onclick="renderBannedList()">Refresh</button>
+          </h5>
+          <div id="admin-banned-list"><p class="admin-hint">No banned emails.</p></div>
+        </section>
+
+        <!-- App Info -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">App Info</h4>
+          <div class="admin-row"><span>Version</span><strong id="admin-version">—</strong></div>
+          <div class="admin-row"><span>API Key</span><code id="admin-api-key">—</code></div>
+          <div class="admin-row"><span>Quota used</span><span id="admin-quota">—</span></div>
+        </section>
+
+
+        <!-- API Key Test -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">API Key Test</h4>
+          <button class="btn-primary" style="width:100%;margin-bottom:8px" onclick="adminTestApiKey()">Run Test (costs 100 quota units)</button>
+          <div id="admin-api-test-result" class="admin-hint">—</div>
+        </section>
+
+        <!-- Error Log -->
+        <section class="admin-section admin-log-section">
+          <h4 class="admin-section-title">Error Log <button class="admin-clear-log-btn" onclick="_adminLogs.length=0;renderAdminLog()">Clear</button></h4>
+          <pre id="admin-log" class="admin-log-pre">No errors logged.</pre>
+        </section>
+
+        <!-- Actions -->
+        <section class="admin-section">
+          <h4 class="admin-section-title">Actions</h4>
+          <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="adminClearCache()">🗑 Clear Cache &amp; Reload</button>
+          <button class="btn-outline btn-full" style="margin-bottom:8px" onclick="resetQuotaAndRetry();showToast('Quota counter reset.',\'success\')">🔄 Reset Quota Cache</button>
+          <div class="form-group" style="margin-top:8px">
+            <label for="admin-change-pin-input">New PIN (digits only, min 4)</label>
+            <input type="password" id="admin-change-pin-input" inputmode="numeric" pattern="\d*"
+                   placeholder="Enter new PIN" maxlength="20" autocomplete="new-password"
+                   onkeydown="if(event.key==='Enter')adminChangePin()" />
+          </div>
+          <button class="btn-outline btn-full" onclick="adminChangePin()">🔑 Update Admin PIN</button>
+          <div class="form-group" style="margin-top:12px">
+            <label for="admin-api-key-input">YouTube API Key (overrides built-in key)</label>
+            <input type="password" id="admin-api-key-input"
+                   placeholder="Paste new API key here" maxlength="100" autocomplete="off"
+                   onkeydown="if(event.key==='Enter')adminUpdateApiKey()" />
+          </div>
+          <button class="btn-outline btn-full" onclick="adminUpdateApiKey()">🔑 Update YouTube API Key</button>
+        </section>
+
+      </div><!-- /admin-main-sections -->
+    </div>
+  </div>
+
+  <script src="https://js.stripe.com/v3/"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script src="app.js"></script>
+  <!-- YouTube IFrame API -->
+  <script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>

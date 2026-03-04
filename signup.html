@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign Up — Cipher Music</title>
+  <link rel="icon" type="image/svg+xml" href="icon-192.svg" />
+  <link rel="apple-touch-icon" href="icon-192.svg" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* Standalone page — show only the signup card, full-viewport centered */
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background:
+        radial-gradient(ellipse at 70% 50%, rgba(124,58,237,0.12) 0%, transparent 60%),
+        radial-gradient(ellipse at 30% 20%, rgba(0,212,255,0.08) 0%, transparent 55%),
+        var(--bg-deep);
+      padding: 32px 16px;
+    }
+
+    .standalone-back {
+      display: block;
+      text-align: center;
+      margin-top: 18px;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    /* Reuse auth-container max-width */
+    .auth-container { width: 100%; max-width: 440px; }
+  </style>
+</head>
+<body class="dark-mode">
+
+  <!-- Toast container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <div class="auth-container">
+    <div class="auth-card glass-card">
+      <div class="auth-logo">
+        <svg width="48" height="48" viewBox="0 0 28 28" fill="none">
+          <circle cx="14" cy="14" r="13" stroke="#00d4ff" stroke-width="2"/>
+          <path d="M10 9 L10 19 L20 14 Z" fill="#00d4ff"/>
+          <circle cx="14" cy="14" r="3" fill="#7c3aed"/>
+        </svg>
+        <h1>Cipher Music</h1>
+        <p class="auth-subtitle">Create your free account</p>
+      </div>
+
+      <!-- Verify step (hidden initially) -->
+      <div id="verify-step" class="hidden">
+        <div class="auth-logo">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="1.5">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+            <polyline points="22,6 12,13 2,6"/>
+          </svg>
+          <h1>Check Your Email</h1>
+          <p class="auth-subtitle">We sent a 6-digit code to</p>
+          <p id="verify-email-display" class="verify-email-addr"></p>
+        </div>
+
+        <div id="demo-code-hint" class="verify-code-display hidden">
+          <p class="verify-code-label">Your verification code</p>
+          <p id="demo-code-value" class="verify-code-number"></p>
+          <p class="verify-code-note">Enter this code in the boxes below</p>
+        </div>
+
+        <div class="otp-wrap">
+          <div class="otp-inputs" id="otp-inputs">
+            <input class="otp-box" maxlength="1" inputmode="numeric" pattern="\d" aria-label="Digit 1" />
+            <input class="otp-box" maxlength="1" inputmode="numeric" pattern="\d" aria-label="Digit 2" />
+            <input class="otp-box" maxlength="1" inputmode="numeric" pattern="\d" aria-label="Digit 3" />
+            <input class="otp-box" maxlength="1" inputmode="numeric" pattern="\d" aria-label="Digit 4" />
+            <input class="otp-box" maxlength="1" inputmode="numeric" pattern="\d" aria-label="Digit 5" />
+            <input class="otp-box" maxlength="1" inputmode="numeric" pattern="\d" aria-label="Digit 6" />
+          </div>
+          <span class="field-error" id="err-otp"></span>
+        </div>
+
+        <button class="btn-primary btn-full" id="verify-btn">Verify &amp; Continue</button>
+        <p class="auth-footer">
+          <a href="#" id="resend-code-link">Resend Code</a>
+          &nbsp;·&nbsp;
+          <a href="#" id="back-to-signup-link">Change Email</a>
+        </p>
+      </div>
+
+      <!-- Signup form -->
+      <form id="signup-form" novalidate>
+        <div class="form-group">
+          <label for="su-username">Username</label>
+          <input type="text" id="su-username" placeholder="Choose a username" autocomplete="username" />
+          <span class="field-error" id="err-su-username"></span>
+        </div>
+        <div class="form-group">
+          <label for="su-email">Email</label>
+          <input type="email" id="su-email" placeholder="Enter your email address" autocomplete="email" />
+          <span class="field-error" id="err-su-email"></span>
+        </div>
+        <div class="form-group">
+          <label for="su-password">Password</label>
+          <div class="password-wrap">
+            <input type="password" id="su-password" placeholder="Create a strong password" autocomplete="new-password" />
+            <button type="button" class="toggle-pw" id="su-toggle-pw" aria-label="Toggle password visibility">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+          <span class="field-error" id="err-su-password"></span>
+        </div>
+        <div class="form-group">
+          <label for="su-confirm">Confirm Password</label>
+          <div class="password-wrap">
+            <input type="password" id="su-confirm" placeholder="Re-enter your password" autocomplete="new-password" />
+          </div>
+          <span class="field-error" id="err-su-confirm"></span>
+        </div>
+        <div class="form-group checkbox-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="su-terms" />
+            <span class="checkmark"></span>
+            I agree to the <a href="#" onclick="return false">Terms of Service</a>
+          </label>
+          <span class="field-error" id="err-su-terms"></span>
+        </div>
+        <button type="submit" class="btn-primary btn-full" id="create-account-btn">Create Account</button>
+        <p class="auth-footer">Already have an account? <a href="index.html">Sign In</a></p>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script>
+    /* ── Minimal inline logic for standalone signup page ── */
+    const CONFIG_SU = {
+      EMAILJS_SERVICE_ID:  'service_p32tpor',
+      EMAILJS_TEMPLATE_ID: 'template_vjpbh3p',
+      EMAILJS_PUBLIC_KEY:  'IJSM7Zp-wxJkkxVN7'
+    };
+
+    const $ = (sel, ctx = document) => ctx.querySelector(sel);
+    const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
+
+    let pendingSignup = null;
+    let pendingCode   = null;
+
+    function showToast(msg, type = 'info') {
+      const c = $('#toast-container');
+      if (!c) return;
+      const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+      const t = document.createElement('div');
+      t.className = `toast toast-${type}`;
+      t.innerHTML = `<span>${icons[type]||''}</span><span>${msg}</span>`;
+      c.appendChild(t);
+      setTimeout(() => { t.classList.add('toast-out'); t.addEventListener('animationend', () => t.remove(), { once: true }); }, 4000);
+    }
+
+    async function hashPassword(pw) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    }
+
+    function getAccounts() {
+      try { return JSON.parse(localStorage.getItem('cipher_accounts') || '[]'); } catch { return []; }
+    }
+
+    function findAccount(val) {
+      const n = val.toLowerCase();
+      return getAccounts().find(a => a.email.toLowerCase() === n || a.username.toLowerCase() === n);
+    }
+
+    function generateCode() {
+      const arr = new Uint32Array(1);
+      crypto.getRandomValues(arr);
+      return String(100000 + (arr[0] % 900000));
+    }
+
+    function escapeHTML(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    async function sendVerificationEmail(toEmail, toName, code) {
+      // Always show the code on screen for easy access
+      $('#demo-code-hint')?.classList.remove('hidden');
+      const v = $('#demo-code-value');
+      if (v) v.textContent = code;
+
+      const isConfigured = CONFIG_SU.EMAILJS_SERVICE_ID !== 'YOUR_SERVICE_ID' &&
+                           CONFIG_SU.EMAILJS_PUBLIC_KEY  !== 'YOUR_PUBLIC_KEY';
+      if (!isConfigured) return;
+      try {
+        if (typeof emailjs === 'undefined') throw new Error('EmailJS not loaded');
+        emailjs.init(CONFIG_SU.EMAILJS_PUBLIC_KEY);
+        await emailjs.send(CONFIG_SU.EMAILJS_SERVICE_ID, CONFIG_SU.EMAILJS_TEMPLATE_ID, {
+          to_email: toEmail, to_name: toName, verification_code: code
+        });
+        showToast('Verification code also sent to ' + toEmail, 'success');
+      } catch {
+        // Code already shown on screen, nothing more to do
+      }
+    }
+
+    function showVerifyStep() {
+      $('#signup-form').classList.add('hidden');
+      $('#verify-step').classList.remove('hidden');
+    }
+
+    function showSignupStep() {
+      $('#signup-form').classList.remove('hidden');
+      $('#verify-step').classList.add('hidden');
+    }
+
+    async function handleSignup(e) {
+      e.preventDefault();
+      const username = $('#su-username').value.trim();
+      const email    = $('#su-email').value.trim();
+      const password = $('#su-password').value;
+      const confirm  = $('#su-confirm').value;
+      const terms    = $('#su-terms').checked;
+
+      let valid = true;
+      const setErr = (id, msg) => { const el = $(`#${id}`); if (el) el.textContent = msg; if (msg) valid = false; };
+
+      setErr('err-su-username', username.length < 2 ? 'Username must be at least 2 characters.' : '');
+      const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+      setErr('err-su-email', !emailOk ? 'Please enter a valid email address.' : '');
+      if (emailOk && findAccount(email)) {
+        setErr('err-su-email', 'An account with this email already exists. Sign in instead.');
+        valid = false;
+      }
+      setErr('err-su-password', password.length < 8 ? 'Password must be at least 8 characters.' : '');
+      setErr('err-su-confirm',  password !== confirm ? 'Passwords do not match.' : '');
+      setErr('err-su-terms',    !terms ? 'You must agree to the terms to continue.' : '');
+      if (!valid) return;
+
+      const btn = $('#create-account-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+      const passwordHash = await hashPassword(password);
+      const code = generateCode();
+
+      pendingSignup = {
+        username, email, passwordHash,
+        memberSince: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+      };
+      pendingCode = code;
+
+      $('#demo-code-hint')?.classList.add('hidden');
+      const emailDisp = $('#verify-email-display');
+      if (emailDisp) emailDisp.textContent = email;
+      $$('.otp-box').forEach(b => { b.value = ''; b.classList.remove('filled'); });
+      $('#err-otp').textContent = '';
+
+      await sendVerificationEmail(email, username, code);
+      if (btn) { btn.disabled = false; btn.textContent = 'Create Account'; }
+      showVerifyStep();
+    }
+
+    function handleVerify() {
+      const entered = $$('.otp-box').map(b => b.value).join('');
+      const errEl = $('#err-otp');
+      if (entered.length < 6) { if (errEl) errEl.textContent = 'Please enter all 6 digits.'; return; }
+      if (entered !== pendingCode) {
+        if (errEl) errEl.textContent = 'Incorrect code. Please try again.';
+        $$('.otp-box').forEach(b => b.classList.add('error'));
+        setTimeout(() => $$('.otp-box').forEach(b => b.classList.remove('error')), 600);
+        return;
+      }
+      if (errEl) errEl.textContent = '';
+
+      const accounts = JSON.parse(localStorage.getItem('cipher_accounts') || '[]');
+      accounts.push(pendingSignup);
+      localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+
+      const user = { username: pendingSignup.username, email: pendingSignup.email, memberSince: pendingSignup.memberSince };
+      localStorage.setItem('cipher_user', JSON.stringify(user));
+
+      // Redirect to main app
+      window.location.href = 'index.html';
+    }
+
+    // OTP auto-advance
+    $$('.otp-box').forEach((box, idx, boxes) => {
+      box.addEventListener('input', () => {
+        const val = box.value.replace(/\D/g,'');
+        box.value = val;
+        box.classList.toggle('filled', val.length > 0);
+        if (val && idx < boxes.length - 1) boxes[idx + 1].focus();
+      });
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !box.value && idx > 0) {
+          boxes[idx-1].focus(); boxes[idx-1].value = ''; boxes[idx-1].classList.remove('filled');
+        }
+      });
+      box.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g,'');
+        boxes.forEach((b,i) => { b.value = text[i]||''; b.classList.toggle('filled', !!text[i]); });
+        boxes[Math.min(text.length, boxes.length-1)].focus();
+      });
+    });
+
+    $('#signup-form')?.addEventListener('submit', handleSignup);
+    $('#verify-btn')?.addEventListener('click', handleVerify);
+    $('#back-to-signup-link')?.addEventListener('click', (e) => { e.preventDefault(); showSignupStep(); });
+    $('#resend-code-link')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (!pendingSignup || !pendingCode) return;
+      showToast('Resending code…', 'info');
+      await sendVerificationEmail(pendingSignup.email, pendingSignup.username, pendingCode);
+    });
+    $('#su-toggle-pw')?.addEventListener('click', () => {
+      const pw = $('#su-password');
+      if (pw) pw.type = pw.type === 'text' ? 'password' : 'text';
+    });
+  </script>
+</body>
+</html>

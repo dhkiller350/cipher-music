@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#00d4ff" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Cipher Music" />
+  <meta name="description" content="Cipher Music is temporarily offline for maintenance." />
+  <meta name="format-detection" content="telephone=no" />
+  <title>Cipher Music — Maintenance</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --accent:   #00d4ff;
+      --purple:   #7c3aed;
+      --bg:       #0e0e1a;
+      --surface:  #16162a;
+      --text:     #e0e0e0;
+      --muted:    #888;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      min-height: 100vh;
+      min-height: 100dvh; /* dynamic viewport for mobile browsers */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+    }
+
+    .card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+      padding: 40px 28px;
+      max-width: 360px;
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid rgba(0, 212, 255, 0.15);
+      border-radius: 18px;
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    .logo {
+      filter: drop-shadow(0 0 16px rgba(0, 212, 255, 0.5));
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.75; transform: scale(0.93); }
+    }
+
+    h1 {
+      font-size: 1.55rem;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1.2;
+    }
+
+    p {
+      font-size: 0.92rem;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid rgba(0, 212, 255, 0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .admin-btn {
+      margin-top: 6px;
+      background: transparent;
+      border: 1px solid rgba(0, 212, 255, 0.2);
+      color: rgba(255, 255, 255, 0.3);
+      font-size: 0.75rem;
+      padding: 7px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+
+    .admin-btn:hover, .admin-btn:focus-visible {
+      color: var(--accent);
+      border-color: rgba(0, 212, 255, 0.55);
+      background: rgba(0, 212, 255, 0.07);
+      outline: none;
+    }
+
+    /* Pin modal */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .modal-backdrop.open { display: flex; }
+
+    .modal-card {
+      background: var(--surface);
+      border: 1px solid rgba(0, 212, 255, 0.2);
+      border-radius: 16px;
+      padding: 28px 24px;
+      max-width: 320px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.7);
+    }
+
+    .modal-card h2 { font-size: 1.15rem; color: var(--accent); margin-bottom: 8px; }
+    .modal-card p  { font-size: 0.83rem; color: var(--muted); margin-bottom: 20px; }
+
+    .pin-input {
+      width: 100%;
+      padding: 10px 14px;
+      font-size: 1rem;
+      letter-spacing: 0.2em;
+      text-align: center;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(0,212,255,0.2);
+      border-radius: 8px;
+      color: var(--text);
+      margin-bottom: 14px;
+      outline: none;
+      -webkit-appearance: none;
+    }
+    .pin-input:focus { border-color: var(--accent); }
+
+    .btn-primary {
+      width: 100%;
+      padding: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 8px;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn-ghost {
+      width: 100%;
+      padding: 9px;
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 0.85rem;
+      cursor: pointer;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .err-msg {
+      font-size: 0.8rem;
+      color: #f87171;
+      min-height: 1.2em;
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <!-- Logo -->
+    <svg class="logo" width="72" height="72" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="14" cy="14" r="13" stroke="#00d4ff" stroke-width="2"/>
+      <path d="M10 9 L10 19 L20 14 Z" fill="#00d4ff"/>
+      <circle cx="14" cy="14" r="3" fill="#7c3aed"/>
+    </svg>
+
+    <h1>Cipher Music</h1>
+    <p>🔧 We're currently performing maintenance.<br>We'll be back very soon!</p>
+
+    <div class="spinner" aria-label="Loading…" role="status"></div>
+
+    <button class="admin-btn" onclick="openAdminModal()" aria-label="Admin access">🔐 Admin Access</button>
+  </div>
+
+  <!-- Admin PIN modal -->
+  <div class="modal-backdrop" id="pin-modal" role="dialog" aria-modal="true" aria-label="Admin PIN">
+    <div class="modal-card">
+      <h2>🔐 Cipher Admin</h2>
+      <p>Enter your admin PIN to disable maintenance mode.</p>
+      <input
+        type="password"
+        id="pin-input"
+        class="pin-input"
+        inputmode="numeric"
+        pattern="\d*"
+        placeholder="••••"
+        autocomplete="off"
+        maxlength="20"
+        onkeydown="if(event.key==='Enter')submitPin()"
+      />
+      <div class="err-msg" id="pin-err"></div>
+      <button class="btn-primary" onclick="submitPin()">Unlock</button>
+      <button class="btn-ghost" onclick="closeAdminModal()">Cancel</button>
+    </div>
+  </div>
+
+  <script>
+    // SHA-256 via Web Crypto — same algorithm used in app.js
+    async function sha256Hex(input) {
+      const data = new TextEncoder().encode(input);
+      const buf  = await crypto.subtle.digest('SHA-256', data);
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Default maintenance PIN hash — sha256('5555'), set by adminToggleMaintenance() in app.js
+    const MAINTENANCE_PIN_HASH = 'c1f330d0aff31c1c87403f1e4347bcc21aff7c179908723535f2b31723702525';
+
+    function openAdminModal() {
+      document.getElementById('pin-modal').classList.add('open');
+      document.getElementById('pin-input').value = '';
+      document.getElementById('pin-err').textContent = '';
+      setTimeout(() => document.getElementById('pin-input').focus(), 100);
+    }
+
+    function closeAdminModal() {
+      document.getElementById('pin-modal').classList.remove('open');
+    }
+
+    async function submitPin() {
+      const pin = document.getElementById('pin-input').value.trim();
+      if (!pin) return;
+
+      // Retrieve the stored hash from localStorage (written by app.js admin panel).
+      // Fall back to the maintenance default (sha256 of '5555') when not set on this device.
+      const storedHash = localStorage.getItem('cipher_admin_pin') || MAINTENANCE_PIN_HASH;
+
+      const hash = await sha256Hex(pin);
+
+      if (hash === storedHash) {
+        _liftMaintenance();
+      } else {
+        document.getElementById('pin-err').textContent = 'Incorrect PIN. Try again.';
+        document.getElementById('pin-input').value = '';
+        document.getElementById('pin-input').focus();
+      }
+    }
+
+    function _liftMaintenance() {
+      // Clear the maintenance flag and navigate back to the app
+      localStorage.setItem('cipher_maintenance', '0');
+      localStorage.setItem('cipher_admin_session', '1');
+      window.location.replace('./index.html');
+    }
+
+    // Auto-redirect back to app if maintenance was already lifted on this device
+    (function checkIfAlreadyLive() {
+      if (localStorage.getItem('cipher_maintenance') !== '1') {
+        window.location.replace('./index.html');
+      }
+    })();
+  </script>
+</body>
+</html>

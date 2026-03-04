@@ -416,3 +416,25 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+nohup.out
+
+# Admin payment data (sensitive - never commit actual payment records)
+admin/data/payments.json
+admin/data/users.json
+admin/data/access_log.json
+admin/data/banned.json
+admin/data/status.json
+
+# Node.js backend
+backend/node_modules/
+backend/.env
+
+# Next.js
+nextjs/.next/
+nextjs/out/
+nextjs/node_modules/
+nextjs/*.pem
+nextjs/public/sw.js
+nextjs/public/worker-*.js
+nextjs/public/fallback-*.js
+nextjs/public/workbox-*.js
