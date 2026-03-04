@@ -79,7 +79,7 @@ function _logAccessEvent(event, email, username) {
   } catch (_) { /* ignore */ }
 }
 
-const APP_VERSION = '2.9'; // bump to show changelog on next load
+const APP_VERSION = '3.0'; // bump to show changelog on next load
 
 // ── API key presence check (no network call — save quota) ──
 if (!CONFIG.YOUTUBE_API_KEY || CONFIG.YOUTUBE_API_KEY.length < MIN_API_KEY_LENGTH) {
