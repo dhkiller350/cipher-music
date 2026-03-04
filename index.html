@@ -137,7 +137,7 @@
             <form id="login-form" novalidate>
               <div class="form-group">
                 <label for="login-email">Email or Username</label>
-                <input type="text" id="login-email" placeholder="Enter your email or username" autocomplete="email" />
+                <input type="text" id="login-email" placeholder="Enter your email or username" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" />
                 <span class="field-error" id="err-login-email"></span>
               </div>
               <div class="form-group">
@@ -161,6 +161,7 @@
               </div>
               <button type="submit" class="btn-primary btn-full" id="signin-btn">Sign In to Cipher</button>
               <p class="auth-footer"><a href="#" id="forgot-link">Forgot password?</a></p>
+              <p class="auth-footer">Signing in from a new device? <a href="#" id="import-device-code-link">Use a device code</a></p>
               <p class="auth-footer">Don't have an account? <a href="#" id="signup-link">Sign Up</a></p>
             </form>
           </div>
@@ -1193,6 +1194,13 @@
               <button id="btn-change-password" class="btn-secondary">Change</button>
             </div>
             <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Transfer to another device</span>
+                <span class="setting-desc">Generate a code to sign in on your phone or iPad</span>
+              </div>
+              <button id="btn-device-code" class="btn-secondary">Get Code</button>
+            </div>
+            <div class="setting-row">
               <button id="btn-signout" class="btn-secondary">Sign Out</button>
               <button id="btn-delete-account" class="btn-danger">Delete Account</button>
             </div>
@@ -1255,6 +1263,39 @@
         <li>🎬 <strong>Video Player</strong> — full-screen video with playsinline on iOS</li>
       </ul>
       <button id="btn-close-changelog" class="btn-primary btn-full" style="margin-top:16px">Let's Go! 🚀</button>
+    </div>
+  </div>
+
+  <!-- ── Modal: Show Device Code ── -->
+  <div id="modal-device-code" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="device-code-title">
+    <div class="modal-overlay" id="modal-device-code-overlay"></div>
+    <div class="modal-card glass-card" style="text-align:center">
+      <div class="changelog-emoji">📱</div>
+      <h3 id="device-code-title">Device Transfer Code</h3>
+      <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px">Open Cipher Music on your other device, tap <strong>Use a device code</strong> on the sign-in screen, then enter this code.</p>
+      <div id="device-code-display" style="font-family:monospace;font-size:1.1rem;letter-spacing:0.12em;background:rgba(255,255,255,0.05);border-radius:8px;padding:14px;margin-bottom:12px;word-break:break-all;user-select:all"></div>
+      <button id="btn-copy-device-code" class="btn-secondary btn-full" style="margin-bottom:8px">📋 Copy Code</button>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:12px">⚠️ Keep this code private — anyone with it can access your account.</p>
+      <button id="btn-close-device-code" class="btn-primary btn-full">Done</button>
+    </div>
+  </div>
+
+  <!-- ── Modal: Import Device Code ── -->
+  <div id="modal-import-code" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="import-code-title">
+    <div class="modal-overlay" id="modal-import-code-overlay"></div>
+    <div class="modal-card glass-card">
+      <h3 id="import-code-title">Restore from Device Code</h3>
+      <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:16px">Paste the device code you generated on your other device.</p>
+      <div class="form-group">
+        <label for="device-code-input">Device Code</label>
+        <input type="text" id="device-code-input" placeholder="Paste code here"
+               autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" />
+        <span class="field-error" id="err-device-code"></span>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button id="btn-cancel-import-code" class="btn-secondary" style="flex:1">Cancel</button>
+        <button id="btn-submit-import-code" class="btn-primary" style="flex:1">Restore Account</button>
+      </div>
     </div>
   </div>
 

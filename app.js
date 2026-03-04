@@ -517,6 +517,50 @@ function showToast(message, type = 'info', duration = 4000) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// DEVICE TRANSFER CODE — cross-device login without a server
+// ═══════════════════════════════════════════════════════════
+/**
+ * Encode the current user's account data as a compact transfer code.
+ * The code is base64(JSON) so the user can copy-paste it on another device.
+ */
+function generateDeviceCode() {
+  if (!state.user) return null;
+  const account = findAccount(state.user.email);
+  if (!account) return null;
+  const payload = { u: account.username, e: account.email, p: account.passwordHash, m: account.memberSince };
+  return btoa(JSON.stringify(payload));
+}
+
+/**
+ * Decode a device transfer code and save the account locally.
+ * Returns { ok: true } on success or { ok: false, error: string } on failure.
+ */
+function importDeviceCode(code) {
+  try {
+    const payload = JSON.parse(atob(code.trim()));
+    if (!payload.u || !payload.e || !payload.p) throw new Error('incomplete');
+    const account = {
+      username:     payload.u,
+      email:        payload.e,
+      passwordHash: payload.p,
+      memberSince:  payload.m || new Date().toISOString()
+    };
+    // Check ban list
+    const banned = JSON.parse(localStorage.getItem('cipher_banned_emails') || '[]');
+    if (banned.some(b => b.toLowerCase() === account.email.toLowerCase())) {
+      return { ok: false, error: 'This account has been banned.' };
+    }
+    // Merge: replace existing record if present, otherwise add
+    const accounts = getAccounts().filter(a => a.email.toLowerCase() !== account.email.toLowerCase());
+    accounts.push(account);
+    localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
+    return { ok: true, account };
+  } catch (err) {
+    return { ok: false, error: 'Invalid code — make sure you copied it in full.' };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 // PASSWORD HASHING (Web Crypto API)
 // ═══════════════════════════════════════════════════════════
 async function hashPassword(password) {
@@ -3454,7 +3498,55 @@ function bindEvents() {
     showView('login');
   });
 
-  // ── Delete account ──
+  // ── Device Transfer Code (generate) ──
+  $('#btn-device-code')?.addEventListener('click', () => {
+    const code = generateDeviceCode();
+    if (!code) { showToast('Sign in first to generate a device code.', 'error'); return; }
+    const display = $('#device-code-display');
+    if (display) display.textContent = code;
+    $('#modal-device-code')?.classList.remove('hidden');
+  });
+  $('#modal-device-code-overlay')?.addEventListener('click', () => $('#modal-device-code')?.classList.add('hidden'));
+  $('#btn-close-device-code')?.addEventListener('click', () => $('#modal-device-code')?.classList.add('hidden'));
+  $('#btn-copy-device-code')?.addEventListener('click', () => {
+    const code = $('#device-code-display')?.textContent || '';
+    navigator.clipboard?.writeText(code).then(() => showToast('Code copied!', 'success')).catch(() => {
+      // Fallback for iOS < 13.3
+      const ta = document.createElement('textarea');
+      ta.value = code;
+      ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      try { document.execCommand('copy'); showToast('Code copied!', 'success'); } catch (_) {}
+      document.body.removeChild(ta);
+    });
+  });
+
+  // ── Device Transfer Code (import) ──
+  $('#import-device-code-link')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    const input = $('#device-code-input');
+    if (input) input.value = '';
+    const err = $('#err-device-code');
+    if (err) err.textContent = '';
+    $('#modal-import-code')?.classList.remove('hidden');
+  });
+  $('#modal-import-code-overlay')?.addEventListener('click', () => $('#modal-import-code')?.classList.add('hidden'));
+  $('#btn-cancel-import-code')?.addEventListener('click', () => $('#modal-import-code')?.classList.add('hidden'));
+  $('#btn-submit-import-code')?.addEventListener('click', () => {
+    const code = ($('#device-code-input')?.value || '').trim();
+    const err = $('#err-device-code');
+    if (!code) { if (err) err.textContent = 'Please paste your device code.'; return; }
+    const result = importDeviceCode(code);
+    if (!result.ok) { if (err) err.textContent = result.error; return; }
+    $('#modal-import-code')?.classList.add('hidden');
+    showToast('Account restored! You can now sign in.', 'success');
+    // Pre-fill the login form with the restored email so the user just needs to type password
+    const loginEmail = $('#login-email');
+    if (loginEmail) loginEmail.value = result.account.email;
+  });
+
+
   $('#btn-delete-account')?.addEventListener('click', () => {
     if (window.confirm('Are you sure you want to delete your account? This cannot be undone.')) {
       stopAllMusic();
