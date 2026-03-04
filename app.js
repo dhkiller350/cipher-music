@@ -6,7 +6,7 @@
 const YOUTUBE_API_KEY_STORAGE = 'cipher_youtube_api_key'; // localStorage key for runtime API key override
 const MIN_API_KEY_LENGTH = 20; // YouTube Data API v3 keys are 39 chars; reject anything shorter
 const CONFIG = {
-  YOUTUBE_API_KEY:     localStorage.getItem(YOUTUBE_API_KEY_STORAGE)?.trim() || "AIzaSyAxMywGGrwQ2FoXClwrOn6LmuWPuYGCKBY",
+  YOUTUBE_API_KEY:     localStorage.getItem(YOUTUBE_API_KEY_STORAGE)?.trim() || "AIzaSyBFg0mTLP-ZAhzxF1cTkDsCSYoXz6kmH1Y",
   EMAILJS_SERVICE_ID:  "service_p32tpor",
   EMAILJS_TEMPLATE_ID: "template_vjpbh3p",
   EMAILJS_PUBLIC_KEY:  "IJSM7Zp-wxJkkxVN7",
