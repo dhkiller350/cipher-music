@@ -236,8 +236,8 @@
       return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
-    // Default maintenance PIN hash — sha256('5555'), set by adminToggleMaintenance() in app.js
-    const MAINTENANCE_PIN_HASH = 'c1f330d0aff31c1c87403f1e4347bcc21aff7c179908723535f2b31723702525';
+    // Default maintenance PIN hash — sha256('0000'), set by adminToggleMaintenance() in app.js
+    const MAINTENANCE_PIN_HASH = '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0';
 
     function openAdminModal() {
       document.getElementById('pin-modal').classList.add('open');
@@ -255,7 +255,7 @@
       if (!pin) return;
 
       // Retrieve the stored hash from localStorage (written by app.js admin panel).
-      // Fall back to the maintenance default (sha256 of '5555') when not set on this device.
+      // Fall back to the maintenance default (sha256 of '0000') when not set on this device.
       const storedHash = localStorage.getItem('cipher_admin_pin') || MAINTENANCE_PIN_HASH;
 
       const hash = await sha256Hex(pin);

@@ -16,7 +16,7 @@ require_once __DIR__ . '/cors.php';
 cipher_cors('GET, POST, DELETE, OPTIONS');
 
 $ADMIN_PIN_HASH = getenv('CIPHER_ADMIN_PIN_HASH')
-    ?: 'c1f330d0aff31c1c87403f1e4347bcc21aff7c179908723535f2b31723702525'; // hash of '5555'
+    ?: '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0'; // hash of '0000'
 
 $USERS_FILE = __DIR__ . '/data/users.json';
 
