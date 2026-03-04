@@ -4,10 +4,22 @@
 
 const SmeeClient = require('smee-client')
 
+// Custom logger: suppress noisy ECONNREFUSED errors that occur when the
+// dev server is not yet running. All other messages are passed through.
+const logger = {
+  ...console,
+  error(...args) {
+    const msg = args[0]
+    if (msg instanceof Error && msg.cause?.code === 'ECONNREFUSED') return
+    if (typeof msg === 'string' && msg.includes('ECONNREFUSED')) return
+    console.error(...args)
+  },
+}
+
 const smee = new SmeeClient({
   source: 'https://smee.io/BiqP2GHZAebl29HA',
   target: 'http://localhost:3000/events',
-  logger: console
+  logger,
 })
 
 const events = smee.start()
