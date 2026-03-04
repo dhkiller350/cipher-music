@@ -24,6 +24,17 @@
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
+<script>
+  /* ── Maintenance-mode gate ── */
+  (function () {
+    // Allow access only if maintenance was explicitly lifted by an admin (value = '0').
+    // All other visitors (new arrivals, value = null, or value = '1') are redirected.
+    if (localStorage.getItem('cipher_maintenance') !== '0') {
+      localStorage.setItem('cipher_maintenance', '1');
+      window.location.replace('./maintenance.html');
+    }
+  })();
+</script>
 <body class="dark-mode">
 
   <!-- ── PWA Install Banner (shown by JS when beforeinstallprompt fires) ── -->
