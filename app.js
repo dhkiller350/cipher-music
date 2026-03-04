@@ -296,6 +296,7 @@ async function releaseWakeLock() {
 let _userExplicitlyPaused = false; // set only by the user's own tap/click
 let _wasPlayingWhenHidden = false;
 let _bgResumeTimer        = null;  // debounce timer for auto-resume
+let _bgRetryCount         = 0;     // retry counter for background resume attempts
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
@@ -519,25 +520,45 @@ function showToast(message, type = 'info', duration = 4000) {
 // ═══════════════════════════════════════════════════════════
 // DEVICE TRANSFER CODE — cross-device login without a server
 // ═══════════════════════════════════════════════════════════
+
+// Unicode-safe base64 helpers (handles non-ASCII song titles / usernames)
+function _b64Encode(obj) {
+  return btoa(encodeURIComponent(JSON.stringify(obj))
+    .replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))));
+}
+function _b64Decode(str) {
+  return JSON.parse(decodeURIComponent(
+    atob(str.trim()).split('').map(c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+  ));
+}
+
 /**
- * Encode the current user's account data as a compact transfer code.
- * The code is base64(JSON) so the user can copy-paste it on another device.
+ * Encode the current user's account data + recently played songs as a
+ * transfer code. The code is unicode-safe base64(JSON) so the user can
+ * copy-paste it on another device.
  */
 function generateDeviceCode() {
   if (!state.user) return null;
   const account = findAccount(state.user.email);
   if (!account) return null;
-  const payload = { u: account.username, e: account.email, p: account.passwordHash, m: account.memberSince };
-  return btoa(JSON.stringify(payload));
+  const payload = {
+    u: account.username,
+    e: account.email,
+    p: account.passwordHash,
+    m: account.memberSince,
+    r: getRecentlyPlayed()   // include recently played so new device has history
+  };
+  return _b64Encode(payload);
 }
 
 /**
- * Decode a device transfer code and save the account locally.
+ * Decode a device transfer code and save the account + recently played
+ * songs locally.
  * Returns { ok: true } on success or { ok: false, error: string } on failure.
  */
 function importDeviceCode(code) {
   try {
-    const payload = JSON.parse(atob(code.trim()));
+    const payload = _b64Decode(code.trim());
     if (!payload.u || !payload.e || !payload.p) throw new Error('incomplete');
     const account = {
       username:     payload.u,
@@ -550,11 +571,20 @@ function importDeviceCode(code) {
     if (banned.some(b => b.toLowerCase() === account.email.toLowerCase())) {
       return { ok: false, error: 'This account has been banned.' };
     }
-    // Merge: replace existing record if present, otherwise add
+    // Merge account: replace existing record if present, otherwise add
     const accounts = getAccounts().filter(a => a.email.toLowerCase() !== account.email.toLowerCase());
     accounts.push(account);
     localStorage.setItem('cipher_accounts', JSON.stringify(accounts));
-    return { ok: true, account };
+    // Restore recently played — merge with any already on this device (deduplicated)
+    let restoredRecent = 0;
+    if (Array.isArray(payload.r) && payload.r.length) {
+      const existing = getRecentlyPlayed();
+      const existingIds = new Set(existing.map(s => s.videoId));
+      const merged = [...existing, ...payload.r.filter(s => !existingIds.has(s.videoId))];
+      localStorage.setItem('cipher_recent', JSON.stringify(merged.slice(0, MAX_RECENT_SONGS)));
+      restoredRecent = payload.r.length;
+    }
+    return { ok: true, account, restoredRecent };
   } catch (err) {
     return { ok: false, error: 'Invalid code — make sure you copied it in full.' };
   }
@@ -1106,9 +1136,22 @@ window.onYouTubeIframeAPIReady = function () {
       cc_load_policy:   0,  // don't show captions by default
       hl:               'en'
     },
-    events: { onStateChange: onPlayerStateChange }
+    events: { onReady: onPlayerReady, onStateChange: onPlayerStateChange }
   });
 };
+
+function onPlayerReady() {
+  // Patch the iframe's `allow` attribute so mobile browsers grant autoplay
+  // permission even in background — required for background audio on iOS/iPadOS.
+  try {
+    const iframe = document.querySelector('#yt-player iframe');
+    if (iframe) {
+      const current = iframe.getAttribute('allow') || '';
+      const needed  = ['autoplay', 'background-sync'].filter(f => !current.includes(f));
+      if (needed.length) iframe.setAttribute('allow', [current, ...needed].filter(Boolean).join('; '));
+    }
+  } catch (_) { /* non-fatal */ }
+}
 
 function onPlayerStateChange(event) {
   const playing = event.data === YT.PlayerState.PLAYING;
@@ -1119,6 +1162,7 @@ function onPlayerStateChange(event) {
 
   if (playing) {
     _userExplicitlyPaused = false; // clear on any play event
+    _bgRetryCount = 0;             // reset retry counter on successful play
     clearTimeout(_bgResumeTimer);
     startListeningTimer();
     requestWakeLock();
@@ -1134,16 +1178,20 @@ function onPlayerStateChange(event) {
         // Screen locked or app switched — the OS paused us, NOT the user.
         // Mark that we were playing so foreground-return can resume.
         _wasPlayingWhenHidden = true;
-        // Attempt to auto-resume after a short delay.
-        // 800ms: long enough for iOS to finish locking the screen before we
-        // restart playback, but short enough to not cause a noticeable gap.
+        // Attempt to auto-resume with multiple retries — a single attempt at
+        // 800ms can miss on iOS if the screen is still locking.  Retries at
+        // ~2 s and ~4 s cover slower devices and brief app-switch scenarios.
         clearTimeout(_bgResumeTimer);
-        _bgResumeTimer = setTimeout(() => {
-          if (document.hidden && !_userExplicitlyPaused && state.ytPlayer && state.ytReady) {
-            startBgAudioKeepAlive();
-            state.ytPlayer.playVideo();
+        _bgRetryCount = 0;
+        const _tryResume = () => {
+          if (!document.hidden || _userExplicitlyPaused || !state.ytPlayer || !state.ytReady) return;
+          startBgAudioKeepAlive();
+          state.ytPlayer.playVideo();
+          if (++_bgRetryCount < 3) {
+            _bgResumeTimer = setTimeout(_tryResume, _bgRetryCount === 1 ? 1200 : 2000);
           }
-        }, 800);
+        };
+        _bgResumeTimer = setTimeout(_tryResume, 800);
       } else {
         // User explicitly paused in foreground
         _userExplicitlyPaused = true;
@@ -3540,7 +3588,10 @@ function bindEvents() {
     const result = importDeviceCode(code);
     if (!result.ok) { if (err) err.textContent = result.error; return; }
     $('#modal-import-code')?.classList.add('hidden');
-    showToast('Account restored! You can now sign in.', 'success');
+    const msg = result.restoredRecent
+      ? `Account restored! ${result.restoredRecent} recently played song${result.restoredRecent === 1 ? '' : 's'} transferred. You can now sign in.`
+      : 'Account restored! You can now sign in.';
+    showToast(msg, 'success');
     // Pre-fill the login form with the restored email so the user just needs to type password
     const loginEmail = $('#login-email');
     if (loginEmail) loginEmail.value = result.account.email;
