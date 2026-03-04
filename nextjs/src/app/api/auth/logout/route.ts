@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { verifyRefreshToken } from '@/lib/jwt';
+import { hashToken } from '@/lib/hash';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,12 +8,9 @@ export async function POST(request: NextRequest) {
   const rawToken = request.cookies.get('refresh_token')?.value;
 
   if (rawToken) {
-    try {
-      const payload = await verifyRefreshToken(rawToken);
-      await supabase.from('sessions').delete().eq('id', payload.sessionId);
-    } catch {
-      // Token invalid/expired — still clear cookies
-    }
+    // Delete the session identified by the token hash (opaque token design)
+    const tokenHash = hashToken(rawToken);
+    await supabase.from('sessions').delete().eq('refresh_token_hash', tokenHash);
   }
 
   const response = NextResponse.json({ ok: true });

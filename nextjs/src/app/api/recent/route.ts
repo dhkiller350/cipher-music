@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { validateAccessToken } from '@/lib/middleware';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const email = request.nextUrl.searchParams.get('email');
-  if (!email) {
-    return NextResponse.json({ error: 'email is required' }, { status: 400 });
-  }
+  const result = await validateAccessToken(request);
+  if ('error' in result) return result.error;
+  const { payload } = result;
+
   const { data, error } = await supabase
     .from('recent_songs')
     .select('*')
-    .eq('user_email', email)
+    .eq('user_email', payload.email)
     .order('played_at', { ascending: false })
     .limit(20);
   if (error) {
@@ -21,16 +22,20 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const result = await validateAccessToken(request);
+  if ('error' in result) return result.error;
+  const { payload } = result;
+
   const body = await request.json();
-  const { email, videoId, title, channel, thumb, playedAt } = body;
-  if (!email || !videoId || !title) {
-    return NextResponse.json({ error: 'email, videoId, and title are required' }, { status: 400 });
+  const { videoId, title, channel, thumb, playedAt } = body;
+  if (!videoId || !title) {
+    return NextResponse.json({ error: 'videoId and title are required' }, { status: 400 });
   }
   const { data, error } = await supabase
     .from('recent_songs')
     .upsert(
       {
-        user_email: email,
+        user_email: payload.email,
         video_id: videoId,
         title,
         channel: channel ?? '',

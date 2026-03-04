@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { verifyPassword } from '@/lib/hash';
 import { hashToken } from '@/lib/hash';
-import { signAccessToken, signRefreshToken } from '@/lib/jwt';
+import { signAccessToken } from '@/lib/jwt';
 import { extractDeviceInfo, rateLimitResponse } from '@/lib/middleware';
 import { randomUUID } from 'crypto';
 

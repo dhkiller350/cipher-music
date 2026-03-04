@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { verifyRefreshToken, signAccessToken } from '@/lib/jwt';
-import { hashToken, compareTokenHash } from '@/lib/hash';
+import { signAccessToken } from '@/lib/jwt';
+import { hashToken } from '@/lib/hash';
 import { extractDeviceInfo } from '@/lib/middleware';
 import { randomUUID } from 'crypto';
 
@@ -20,32 +20,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No refresh token' }, { status: 401 });
   }
 
-  let jwtPayload: Awaited<ReturnType<typeof verifyRefreshToken>>;
-  try {
-    jwtPayload = await verifyRefreshToken(rawToken);
-  } catch {
-    return NextResponse.json({ error: 'Invalid refresh token' }, { status: 401 });
-  }
-
+  // Look up the session by hashing the raw token (opaque token design)
+  const tokenHash = hashToken(rawToken);
   const { data: session } = await supabase
     .from('sessions')
     .select('*')
-    .eq('id', jwtPayload.sessionId)
+    .eq('refresh_token_hash', tokenHash)
     .single();
 
   if (!session) {
-    return NextResponse.json({ error: 'Session not found' }, { status: 401 });
-  }
-
-  // Token rotation: verify stored hash matches
-  const tokenMatches = compareTokenHash(rawToken, session.refresh_token_hash);
-  if (!tokenMatches) {
-    // Possible token theft — revoke ALL sessions for this user
-    await supabase
-      .from('sessions')
-      .delete()
-      .eq('user_id', session.user_id);
-    return NextResponse.json({ error: 'Token reuse detected – all sessions revoked' }, { status: 401 });
+    // Token not found — may be a reuse attempt; try to revoke any sessions
+    // we can identify (best-effort via brute-force is not possible, so just reject)
+    return NextResponse.json({ error: 'Invalid or expired refresh token' }, { status: 401 });
   }
 
   if (new Date(session.expires_at) < new Date()) {

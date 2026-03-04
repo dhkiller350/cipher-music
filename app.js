@@ -25,8 +25,41 @@ const CONFIG = {
   // Set the CIPHER_STRIPE_WEBHOOK_SECRET env var on your server to the
   // "Signing secret" shown there (whsec_…).
   // URL: https://your-server/admin/webhook.php
-  STRIPE_WEBHOOK_ENDPOINT: '/admin/webhook.php'
+  STRIPE_WEBHOOK_ENDPOINT: '/admin/webhook.php',
+  // Next.js API base URL — set to the origin where the Next.js server is running.
+  // When the Next.js app is served on the same origin (e.g. via a reverse-proxy
+  // that maps /api → Next.js), leave this as '' (empty string).
+  // Override via localStorage key 'cipher_api_base', e.g. 'https://api.example.com'
+  CIPHER_API_BASE: localStorage.getItem('cipher_api_base')?.trim() || ''
 };
+
+// ── Cipher Next.js API helpers ────────────────────────────
+// In-memory access token (also stored as HttpOnly cookie by the server).
+// The HttpOnly cookie is used automatically by the browser for same-origin
+// requests; this in-memory copy allows setting the Authorization header for
+// cross-origin deployments.
+let _cipherAccessToken = null;
+
+/**
+ * Make an authenticated request to the Next.js API.
+ * Automatically attaches the access_token if available.
+ * Returns the parsed JSON body, or throws on non-OK responses.
+ */
+async function _cipherApiCall(method, path, body) {
+  const base = CONFIG.CIPHER_API_BASE;
+  const url  = base + path;
+  const headers = { 'Content-Type': 'application/json' };
+  if (_cipherAccessToken) headers['Authorization'] = 'Bearer ' + _cipherAccessToken;
+  const opts = { method, headers, credentials: 'include' };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  if (!res.ok) {
+    let errMsg = 'API error ' + res.status;
+    try { const j = await res.json(); errMsg = j.error || errMsg; } catch { /* ignore */ }
+    throw new Error(errMsg);
+  }
+  return res.json();
+}
 
 // Admin server base URL — runtime-configurable.
 // Priority: 1) localStorage 'cipher_admin_server_url'
@@ -1085,8 +1118,90 @@ async function handleLogin(e) {
   saveUser(user);
   updateHeaderUser();
   _logAccessEvent('login', user.email, user.username);
+
+  // If the Next.js API is configured, attempt JWT login for cross-device sync.
+  // _cipherJwtLogin always calls showView('player') at the end (success or failure).
+  if (CONFIG.CIPHER_API_BASE) {
+    _cipherJwtLogin(user.email, password, user);
+  } else {
+    showView('player');
+  }
+}
+
+/**
+ * Perform JWT login against the Next.js API.
+ * Stores the access token, merges recent-played from server, then shows the player.
+ */
+async function _cipherJwtLogin(email, password, localUser) {
+  try {
+    const data = await _cipherApiCall('POST', '/api/auth/login', { email, password });
+    if (data.accessToken) {
+      _cipherAccessToken = data.accessToken;
+      // Merge server-side user fields if richer than local
+      if (data.user) {
+        const merged = Object.assign({}, localUser, {
+          plan: data.user.plan || localUser.plan,
+          username: data.user.username || localUser.username,
+        });
+        saveUser(merged);
+        updateHeaderUser();
+      }
+    }
+    // Sync recently-played from the server so all devices see the same history
+    await _syncRecentFromApi(email);
+  } catch (_) { /* API unavailable — continue with local data only */ }
   showView('player');
 }
+
+/**
+ * Load recently-played from the Next.js API and merge with localStorage.
+ * Server records take precedence; local-only entries are appended at the end.
+ */
+async function _syncRecentFromApi(email) {
+  if (!CONFIG.CIPHER_API_BASE || !email) return;
+  try {
+    const serverRecent = await _cipherApiCall('GET', '/api/recent');
+    if (!Array.isArray(serverRecent) || !serverRecent.length) return;
+    const local = getRecentlyPlayed();
+    const serverIds = new Set(serverRecent.map(s => s.video_id || s.videoId));
+    // Convert server rows to the local shape
+    const serverItems = serverRecent.map(s => ({
+      videoId:  s.video_id || s.videoId,
+      title:    s.title,
+      channel:  s.channel,
+      thumb:    s.thumb,
+      playedAt: s.played_at ? new Date(s.played_at).getTime() : (s.playedAt || 0),
+    }));
+    // Keep local items not already on server, then append them after server items
+    const localOnly = local.filter(l => !serverIds.has(l.videoId));
+    const merged = [...serverItems, ...localOnly].slice(0, MAX_RECENT_SONGS);
+    localStorage.setItem('cipher_recent', JSON.stringify(merged));
+    renderRecentlyPlayed();
+  } catch (_) { /* non-blocking */ }
+}
+
+/**
+ * On page reload, use the HttpOnly refresh_token cookie to get a new access
+ * token, update the in-memory copy, and sync recent-played from the server.
+ */
+async function _cipherRefreshSession(email) {
+  if (!CONFIG.CIPHER_API_BASE) return;
+  try {
+    const data = await _cipherApiCall('POST', '/api/auth/refresh', {});
+    if (data.accessToken) {
+      _cipherAccessToken = data.accessToken;
+      if (data.user?.plan) {
+        const u = JSON.parse(localStorage.getItem('cipher_user') || '{}');
+        u.plan = data.user.plan;
+        localStorage.setItem('cipher_user', JSON.stringify(u));
+        state.user = u;
+        updateHeaderUser();
+      }
+    }
+    await _syncRecentFromApi(email);
+  } catch (_) { /* session may have expired — user will log in again */ }
+}
+
 // ═══════════════════════════════════════════════════════════
 function showView(viewName) {
   state.currentView = viewName;
@@ -2413,11 +2528,23 @@ function addToRecentlyPlayed(item) {
   const title   = decodeHTMLEntities(item.snippet?.title || '');
   const channel = item.snippet?.channelTitle || '';
   const thumb   = item.snippet?.thumbnails?.default?.url || item.snippet?.thumbnails?.medium?.url || '';
+  const playedAt = Date.now();
   let recent = getRecentlyPlayed().filter(s => s.videoId !== videoId);
-  recent.unshift({ videoId, title, channel, thumb, playedAt: Date.now() });
+  recent.unshift({ videoId, title, channel, thumb, playedAt });
   if (recent.length > MAX_RECENT_SONGS) recent = recent.slice(0, MAX_RECENT_SONGS);
   localStorage.setItem('cipher_recent', JSON.stringify(recent));
   renderRecentlyPlayed();
+
+  // Persist to server for cross-device sync (fire-and-forget)
+  if (CONFIG.CIPHER_API_BASE && _cipherAccessToken) {
+    _cipherApiCall('POST', '/api/recent', {
+      videoId,
+      title,
+      channel,
+      thumb,
+      playedAt: new Date(playedAt).toISOString(),
+    }).catch(() => { /* non-blocking */ });
+  }
 }
 
 function renderRecentlyPlayed() {
@@ -3540,6 +3667,11 @@ function bindEvents() {
   // ── Sign out ──
   $('#btn-signout')?.addEventListener('click', () => {
     stopAllMusic();
+    // Invalidate the server-side session (HttpOnly cookie cleared by server)
+    if (CONFIG.CIPHER_API_BASE && _cipherAccessToken) {
+      _cipherApiCall('POST', '/api/auth/logout', {}).catch(() => { /* non-blocking */ });
+    }
+    _cipherAccessToken = null;
     clearUser();
     updateHeaderUser();
     state.featuredLoaded = false;
@@ -4000,6 +4132,11 @@ function init() {
     showView('player');
     // Show changelog after a short delay so the player loads first
     setTimeout(maybeShowChangelog, 800);
+    // On page refresh, try to refresh the access token so the session stays
+    // alive and sync recent-played history from the server.
+    if (CONFIG.CIPHER_API_BASE) {
+      _cipherRefreshSession(state.user.email).catch(() => { /* non-blocking */ });
+    }
   } else {
     showView('login');
   }
