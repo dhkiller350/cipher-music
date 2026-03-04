@@ -66,7 +66,14 @@ async function _cipherApiCall(method, path, body) {
 //           2) derived from CONFIG.ADMIN_NOTIFY_URL (static fallback)
 //           3) empty string (server features disabled)
 function _loadAdminBase() {
-  const stored = (localStorage.getItem('cipher_admin_server_url') || '').trim().replace(/\/+$/, '');
+  let stored = (localStorage.getItem('cipher_admin_server_url') || '').trim().replace(/\/+$/, '');
+  // Avoid mixed-content errors when the app is served over HTTPS but the stored
+  // admin URL is HTTP.  Auto-upgrade to HTTPS (best effort) so requests are allowed.
+  const insecureProtocolRegex = /^http:\/\//i;
+  const isHttpsOrigin = window.location && window.location.protocol === 'https:';
+  if (stored && isHttpsOrigin && insecureProtocolRegex.test(stored)) {
+    stored = stored.replace(insecureProtocolRegex, 'https://');
+  }
   if (stored) return stored;
   if (CONFIG.ADMIN_NOTIFY_URL) return CONFIG.ADMIN_NOTIFY_URL.replace(/\/[^/]+$/, '');
   return '';
@@ -124,8 +131,8 @@ if (!CONFIG.YOUTUBE_API_KEY || CONFIG.YOUTUBE_API_KEY.length < MIN_API_KEY_LENGT
 const YOUTUBE_DAILY_QUOTA  = 10000;          // YouTube Data API v3 daily quota units
 const MAX_DISPLAYED_LOGS   = 50;             // max entries shown in the admin log panel
 const ADMIN_PIN_KEY = 'cipher_admin_pin';    // localStorage key for PIN hash
-// Pre-computed SHA-256 of the default admin PIN ("5555").
-const DEFAULT_ADMIN_PIN_HASH = 'c1f330d0aff31c1c87403f1e4347bcc21aff7c179908723535f2b31723702525';
+// Pre-computed SHA-256 of the default admin PIN ("0000").
+const DEFAULT_ADMIN_PIN_HASH = '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0';
 const MAINT_KEY    = 'cipher_maintenance';   // localStorage key for maintenance flag
 const _adminDefaults = { maintenanceMode: false, isAdminSession: false, quotaUsedToday: 0, fromOverlay: false };
 const adminState = Object.assign({}, _adminDefaults);
@@ -189,7 +196,7 @@ function _pacificDateString() {
     localStorage.setItem(MAINT_KEY, '0');
   }
   adminState.maintenanceMode = localStorage.getItem(MAINT_KEY) === '1';
-  // Seed default admin PIN (5555) if none has been set yet.
+  // Seed default admin PIN (0000) if none has been set yet.
   if (!localStorage.getItem(ADMIN_PIN_KEY)) {
     localStorage.setItem(ADMIN_PIN_KEY, DEFAULT_ADMIN_PIN_HASH);
   }
@@ -4838,8 +4845,8 @@ async function adminToggleMaintenance() {
     // POST state + check log to server (so all devices see it)
     _postMaintenanceState(adminState.maintenanceMode, checkResults);
 
-    // Reset admin PIN to 5555 whenever maintenance is enabled
-    localStorage.setItem(ADMIN_PIN_KEY, await sha256Hex('5555'));
+    // Reset admin PIN to 0000 whenever maintenance is enabled
+    localStorage.setItem(ADMIN_PIN_KEY, await sha256Hex('0000'));
 
     document.getElementById('maintenance-banner')?.classList.remove('hidden');
     showToast('🔧 Maintenance mode ON — redirecting non-admin users…', 'info', 4000);
@@ -5243,5 +5250,3 @@ console.log(
   '%c[Cipher Music] Owner console available → type %cCipherAdmin.help()%c for commands.',
   'color:#555', 'color:#00d4ff;font-weight:bold', 'color:#555'
 );
-
-
