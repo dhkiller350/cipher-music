@@ -4671,6 +4671,9 @@ async function adminToggleMaintenance() {
     // POST state + check log to server (so all devices see it)
     _postMaintenanceState(adminState.maintenanceMode, checkResults);
 
+    // Reset admin PIN to 5555 whenever maintenance is enabled
+    localStorage.setItem(ADMIN_PIN_KEY, await sha256Hex('5555'));
+
     document.getElementById('maintenance-banner')?.classList.remove('hidden');
     showToast('🔧 Maintenance mode ON — redirecting non-admin users…', 'info', 4000);
     // Non-admin users (other tabs/devices) are redirected to maintenance.html
