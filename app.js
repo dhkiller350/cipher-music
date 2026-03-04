@@ -604,7 +604,7 @@ function _clearUserState() {
     'cipher_user', 'cipher_settings', 'cipher_active_plan',
     'cipher_liked', 'cipher_recent', 'cipher_playlists',
     'cipher_avatar', 'cipher_pending_payment', 'cipher_payment_log',
-    'cipher_seen_version',
+    'cipher_seen_version', 'cipher_accent_color',
   ];
   USER_KEYS.forEach(k => localStorage.removeItem(k));
   state.user       = null;
@@ -3466,6 +3466,12 @@ function bindEvents() {
 
       // Clear all user-specific state (plan, settings, media history, etc.)
       _clearUserState();
+
+      // Reset accent color to default immediately so the page visually returns
+      // to the default look before the reload.
+      applyAccentColor('#00d4ff');
+      const picker = $('#accent-color-picker');
+      if (picker) picker.value = '#00d4ff';
 
       // Prevent the browser from auto-filling or auto-signing in with the
       // deleted account's saved email/password after the reload.
