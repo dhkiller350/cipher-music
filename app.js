@@ -216,9 +216,20 @@ let _spotifyTokenExpiry  = parseInt(localStorage.getItem('spotify_token_expiry')
 
 /** Generate a random string for code_verifier (43-128 chars). */
 function _generateCodeVerifier(length = 64) {
-  const arr = new Uint8Array(length);
+  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const arr = new Uint8Array(length * 2); // oversample to handle rejection
   crypto.getRandomValues(arr);
-  return Array.from(arr, b => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[b % 62]).join('');
+  let result = '';
+  for (let i = 0; i < arr.length && result.length < length; i++) {
+    if (arr[i] < 248) result += charset[arr[i] % 62]; // reject 248-255 to avoid bias
+  }
+  // Extremely unlikely to not have enough chars; pad if needed
+  while (result.length < length) {
+    const extra = new Uint8Array(1);
+    crypto.getRandomValues(extra);
+    if (extra[0] < 248) result += charset[extra[0] % 62];
+  }
+  return result;
 }
 
 /** SHA-256 hash, then base64url-encode for code_challenge. */
@@ -286,10 +297,12 @@ async function _spotifyRefreshAccessToken() {
   _saveSpotifyTokens(data);
 }
 
+const TOKEN_REFRESH_BUFFER_SECONDS = 60; // refresh this many seconds before actual expiry
+
 function _saveSpotifyTokens(data) {
   _spotifyAccessToken = data.access_token;
   if (data.refresh_token) _spotifyRefreshToken = data.refresh_token;
-  _spotifyTokenExpiry = Date.now() + (data.expires_in - 60) * 1000; // refresh 60s early
+  _spotifyTokenExpiry = Date.now() + (data.expires_in - TOKEN_REFRESH_BUFFER_SECONDS) * 1000;
   localStorage.setItem('spotify_access_token', _spotifyAccessToken);
   if (data.refresh_token) localStorage.setItem('spotify_refresh_token', _spotifyRefreshToken);
   localStorage.setItem('spotify_token_expiry', String(_spotifyTokenExpiry));
@@ -1360,6 +1373,10 @@ function initSpotifyPlayer() {
     name: 'Cipher Music',
     getOAuthToken: async cb => {
       const token = await getSpotifyToken();
+      if (!token) {
+        adminLog('Spotify token unavailable — please reconnect.');
+        return;
+      }
       cb(token);
     },
     volume: 0.8
@@ -1430,8 +1447,14 @@ function _handleSpotifyStateChange(spState) {
     }
   }
 
-  // Track ended — handle repeat / shuffle / next
-  if (spState.track_window?.current_track && spState.position === 0 && spState.paused && spState.disallows?.resuming) {
+  // Track ended — Spotify signals this when the track is paused at position 0
+  // after having played (i.e. not a manual seek-to-start).
+  // We also check that the next_tracks list is empty to distinguish from queue transitions.
+  const trackEnded = spState.paused && spState.position === 0
+    && spState.track_window?.current_track
+    && (!spState.track_window.next_tracks || spState.track_window.next_tracks.length === 0)
+    && spState.duration > 0;
+  if (trackEnded) {
     _onTrackEnded();
   }
 }
@@ -1617,6 +1640,14 @@ function _getTrackId(item) {
 }
 function _getTrackUri(item) {
   return item.uri || item.trackUri || '';
+}
+
+/** Build a Spotify track URI from a track ID, with basic validation. */
+function _buildSpotifyUri(trackId) {
+  if (!trackId || typeof trackId !== 'string' || !/^[a-zA-Z0-9]{22}$/.test(trackId)) {
+    return ''; // Spotify track IDs are 22 base62 characters
+  }
+  return 'spotify:track:' + trackId;
 }
 
 function playVideo(index) {
@@ -1817,7 +1848,7 @@ function populateLiked() {
   const items = liked.map(s => ({
     id: { trackId: s.trackId },
     trackId: s.trackId,
-    uri: `spotify:track:${s.trackId}`,
+    uri: _buildSpotifyUri(s.trackId),
     snippet: {
       title: s.title,
       channelTitle: s.channel,
@@ -1867,28 +1898,23 @@ function playNext() {
 }
 
 function playPrev() {
+  function _goToPrev() {
+    const prev = state.currentIndex - 1;
+    if (prev >= 0) {
+      playVideo(prev);
+    } else {
+      showToast('Already at the first track.', 'info', 2000);
+    }
+  }
   // If more than 3 seconds into the track, restart it instead of going back
   if (state.spotifyReady) {
     spotifyApiFetch('https://api.spotify.com/v1/me/player').then(r => r.json()).then(d => {
       if ((d.progress_ms || 0) > 3000) { replayTrack(); return; }
-      const prev = state.currentIndex - 1;
-      if (prev >= 0) {
-        playVideo(prev);
-      } else {
-        showToast('Already at the first track.', 'info', 2000);
-      }
-    }).catch(() => {
-      const prev = state.currentIndex - 1;
-      if (prev >= 0) playVideo(prev);
-    });
+      _goToPrev();
+    }).catch(() => _goToPrev());
     return;
   }
-  const prev = state.currentIndex - 1;
-  if (prev >= 0) {
-    playVideo(prev);
-  } else {
-    showToast('Already at the first track.', 'info', 2000);
-  }
+  _goToPrev();
 }
 
 function replayTrack() {
@@ -2713,11 +2739,11 @@ function getRecentlyPlayed() {
 }
 
 function addToRecentlyPlayed(item) {
-  const trackId = item.id?.trackId || item.trackId || '';
+  const trackId = _getTrackId(item);
   if (!trackId) return;
-  const title   = decodeHTMLEntities(item.snippet?.title || '');
-  const channel = item.snippet?.channelTitle || '';
-  const thumb   = item.snippet?.thumbnails?.default?.url || item.snippet?.thumbnails?.medium?.url || '';
+  const title   = decodeHTMLEntities(_getTitle(item));
+  const channel = _getArtist(item);
+  const thumb   = _getThumb(item, 'default') || _getThumb(item, 'medium');
   const playedAt = Date.now();
   let recent = getRecentlyPlayed().filter(s => s.trackId !== trackId);
   recent.unshift({ trackId, title, channel, thumb, playedAt });
@@ -2775,7 +2801,7 @@ function playFromRecent(trackId) {
   const item = {
     id: { trackId },
     trackId,
-    uri: `spotify:track:${trackId}`,
+    uri: _buildSpotifyUri(trackId),
     snippet: { title: s.title, channelTitle: s.channel, thumbnails: { default: { url: s.thumb }, medium: { url: s.thumb } } }
   };
   state.searchResults = [item, ...state.searchResults];
@@ -3490,7 +3516,7 @@ function openPlaylist(id) {
   const items = pl.songs.map(s => ({
     id: { trackId: s.trackId },
     trackId: s.trackId,
-    uri: `spotify:track:${s.trackId}`,
+    uri: _buildSpotifyUri(s.trackId),
     snippet: { title: s.title, channelTitle: s.channel, thumbnails: { medium: { url: s.thumb } } }
   }));
   state.searchResults = items;
@@ -3908,13 +3934,13 @@ function bindEvents() {
     });
   });
 
-  // ── Genre chips — support optional channelId for NullRaze etc. ──
+  // ── Genre chips — search for the genre/topic ──
   $$('.genre-chip').forEach(chip => {
     chip.addEventListener('click', () => {
       $$('.genre-chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
       state.activeChip = chip.dataset.query;
-      handleSearch(chip.dataset.query, chip.dataset.channel || '');
+      handleSearch(chip.dataset.query);
     });
   });
 
@@ -3925,7 +3951,7 @@ function bindEvents() {
     const items = liked.map(s => ({
       id: { trackId: s.trackId },
       trackId: s.trackId,
-      uri: `spotify:track:${s.trackId}`,
+      uri: _buildSpotifyUri(s.trackId),
       snippet: {
         title: s.title,
         channelTitle: s.channel,
@@ -4036,6 +4062,14 @@ function bindEvents() {
   // ── Sign out ──
   $('#btn-signout')?.addEventListener('click', () => {
     stopAllMusic();
+    // Disconnect Spotify player
+    if (state.spotifyPlayer) {
+      state.spotifyPlayer.disconnect();
+      state.spotifyPlayer = null;
+      state.spotifyReady = false;
+      state.spotifyDeviceId = null;
+    }
+    spotifyLogout();
     // Invalidate the server-side session (HttpOnly cookie cleared by server)
     if (CONFIG.CIPHER_API_BASE && _cipherAccessToken) {
       _cipherApiCall('POST', '/api/auth/logout', {}).catch(() => { /* non-blocking */ });
