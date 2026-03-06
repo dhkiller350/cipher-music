@@ -1369,19 +1369,21 @@ function startBeatSyncWaveform() {
   if (!sw) return;
   sw.classList.add('beat-sync');
   const bars = Array.from(sw.querySelectorAll('span'));
-  const NUM = bars.length || 15;
 
   // Sine-based pseudo-random beat pattern (fast with accent every ~0.5s)
+  // Amplitudes are driven by the active EQ preset so the waveform reflects
+  // the chosen sound profile visually.
   function tick() {
+    const eq = EQ_PRESETS[_activeEqPreset] || EQ_PRESETS['flat'];
     _beatPhase += 0.06;
     bars.forEach((bar, i) => {
       // Stagger phase per bar to get a wave effect
       const phase = _beatPhase + i * 0.42;
-      // Multi-frequency: base (slow sway) + beat accent (fast bounce)
+      // Multi-frequency: base (low), beat (mid), noise (high)
       const base   = 0.5 + 0.5 * Math.sin(phase * 1.3);
       const beat   = 0.5 + 0.5 * Math.abs(Math.sin(phase * 3.7 + i * 0.9));
       const noise  = 0.5 + 0.5 * Math.sin(phase * 7.1 + i * 1.7);
-      const h = Math.round(3 + base * 8 + beat * 9 + noise * 4); // 3–24 px
+      const h = Math.round(3 + base * eq.baseAmp + beat * eq.beatAmp + noise * eq.noiseAmp);
       bar.style.height = h + 'px';
     });
     _beatRafId = requestAnimationFrame(tick);
@@ -1502,6 +1504,9 @@ function playVideo(index) {
   const vol = parseInt($('#volume-slider')?.value ?? 80, 10);
   state.ytPlayer.setVolume(vol);
 
+  // Apply user settings (playback speed, HQ audio, EQ) to the new track
+  applyAllSettings();
+
   // Track play count and start listening timer
   state.songsPlayed++;
   startListeningTimer();
@@ -1541,9 +1546,7 @@ function updateNowPlayingPanel(item) {
   if (bg && thumb) bg.style.backgroundImage = `url(${thumb})`;
 
   const settings = JSON.parse(localStorage.getItem('cipher_settings') || '{}');
-  const showSW   = settings.showSoundwave !== false;
-  const sw       = $('#np-soundwave');
-  if (sw) sw.style.display = showSW ? 'flex' : 'none';
+  applySoundwaveVisibility(settings.showSoundwave !== false);
 
   if (panel) panel.classList.remove('hidden');
   setSoundwavePlaying(true);
@@ -3021,6 +3024,9 @@ function loadSettings() {
   }
   // Sync player-bar repeat button with saved setting
   updateRepeatButton(settings.repeatMode ?? 'off');
+
+  // Apply runtime settings (speed, quality, EQ visualisation, soundwave)
+  applyAllSettings();
 }
 
 function saveSettings() {
@@ -3039,6 +3045,86 @@ function saveSettings() {
   localStorage.setItem('cipher_settings', JSON.stringify(settings));
   // Push to server so all other devices pick up the change automatically
   _syncSettingsToServer(settings, localStorage.getItem('cipher_accent_color') || '');
+}
+
+// ── Apply individual settings to the YouTube player ───────
+
+/**
+ * Apply playback speed to the YouTube player.
+ * Uses the IFrame API setPlaybackRate method.
+ */
+function applyPlaybackSpeed(rate) {
+  if (!state.ytReady || !state.ytPlayer) return;
+  const r = parseFloat(rate) || 1;
+  try { state.ytPlayer.setPlaybackRate(r); } catch (_) { /* non-fatal */ }
+}
+
+/**
+ * Apply audio quality preference to the YouTube player.
+ * 'hd720' is the highest quality YouTube allows via the IFrame API;
+ * 'default' lets YouTube choose based on the viewer's connection.
+ */
+function applyHqAudio(enabled) {
+  if (!state.ytReady || !state.ytPlayer) return;
+  try { state.ytPlayer.setPlaybackQuality(enabled ? 'hd720' : 'default'); } catch (_) { /* non-fatal */ }
+}
+
+/**
+ * EQ preset parameters — each preset adjusts the soundwave visualisation
+ * heights so the user gets visual feedback reflecting the chosen profile.
+ * Keys: baseAmp (low-freq emphasis), beatAmp (mid-freq), noiseAmp (high-freq)
+ */
+const EQ_PRESETS = {
+  'flat':          { baseAmp: 8, beatAmp: 9, noiseAmp: 4, label: 'Flat' },
+  'bass-boost':    { baseAmp: 14, beatAmp: 6, noiseAmp: 2, label: 'Bass Boost' },
+  'treble-boost':  { baseAmp: 4, beatAmp: 6, noiseAmp: 12, label: 'Treble Boost' },
+  'vocal':         { baseAmp: 5, beatAmp: 14, noiseAmp: 3, label: 'Vocal / Podcast' },
+  'electronic':    { baseAmp: 12, beatAmp: 10, noiseAmp: 8, label: 'Electronic' },
+  'acoustic':      { baseAmp: 7, beatAmp: 11, noiseAmp: 5, label: 'Acoustic' },
+  'classical':     { baseAmp: 6, beatAmp: 8, noiseAmp: 7, label: 'Classical' }
+};
+
+/** Currently active EQ preset key. */
+let _activeEqPreset = 'flat';
+
+/**
+ * Apply an equalizer preset.  Updates the soundwave visualisation parameters
+ * and shows a confirmation toast.
+ */
+function applyEqPreset(presetKey, silent) {
+  const preset = EQ_PRESETS[presetKey] || EQ_PRESETS['flat'];
+  _activeEqPreset = presetKey;
+  // Restart the beat-sync waveform so it picks up the new amplitudes
+  if (_beatRafId) {
+    stopBeatSyncWaveform();
+    startBeatSyncWaveform();
+  }
+  if (!silent) {
+    showToast(`🎛️ Equalizer: ${preset.label}`, 'info', 2000);
+  }
+}
+
+/**
+ * Apply the soundwave visibility setting immediately.
+ */
+function applySoundwaveVisibility(show) {
+  const sw = $('#np-soundwave');
+  if (sw) sw.style.display = show ? 'flex' : 'none';
+  if (!show) stopBeatSyncWaveform();
+  else if (state.isPlaying) startBeatSyncWaveform();
+}
+
+/**
+ * Read all saved settings and apply them to the player and UI.
+ * Called after a video starts and on initial page load.
+ */
+function applyAllSettings() {
+  const settings = JSON.parse(localStorage.getItem('cipher_settings') || '{}');
+  applyPlaybackSpeed(settings.playbackSpeed ?? '1');
+  applyHqAudio(settings.hq ?? false);
+  applyEqPreset(settings.eqPreset ?? 'flat', true);
+  applySoundwaveVisibility(settings.showSoundwave !== false);
+  applyDarkMode(settings.darkMode ?? true);
 }
 
 /**
@@ -3780,7 +3866,19 @@ function bindEvents() {
     saveSettings();
   });
 
-  ['toggle-autoplay', 'toggle-hq', 'toggle-soundwave', 'toggle-notifications'].forEach(id => {
+  // HQ audio — apply quality change immediately
+  $('#toggle-hq')?.addEventListener('change', function () {
+    saveSettings();
+    applyHqAudio(this.checked);
+  });
+
+  // Soundwave visibility — apply immediately
+  $('#toggle-soundwave')?.addEventListener('change', function () {
+    saveSettings();
+    applySoundwaveVisibility(this.checked);
+  });
+
+  ['toggle-autoplay', 'toggle-notifications'].forEach(id => {
     $(`#${id}`)?.addEventListener('change', saveSettings);
   });
 
@@ -3794,9 +3892,19 @@ function bindEvents() {
     }
   });
 
-  ['playback-speed', 'eq-preset', 'language-select'].forEach(id => {
-    $(`#${id}`)?.addEventListener('change', saveSettings);
+  // Playback speed — apply to YouTube player immediately
+  $('#playback-speed')?.addEventListener('change', function () {
+    saveSettings();
+    applyPlaybackSpeed(this.value);
   });
+
+  // Equalizer preset — apply visualisation + feedback immediately
+  $('#eq-preset')?.addEventListener('change', function () {
+    saveSettings();
+    applyEqPreset(this.value);
+  });
+
+  $('#language-select')?.addEventListener('change', saveSettings);
 
   // Keep repeat-mode select in sync with the player-bar repeat button
   $('#repeat-mode')?.addEventListener('change', function () {
