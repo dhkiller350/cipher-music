@@ -1140,7 +1140,7 @@
     </main>
   </div>
 
-  <!-- Player Bar and YouTube player — hoisted to body level so they remain
+  <!-- Player Bar — hoisted to body level so they remain
        visible on every view (position:fixed inside a display:none parent is
        hidden on all browsers, which broke playback controls when navigating
        away from the player view). -->
@@ -1206,8 +1206,8 @@
     </button>
   </div>
 
-  <!-- YouTube IFrame container — hidden (audio-only) or visible (video mode) -->
-  <div id="yt-player-container" class="yt-hidden">
+  <!-- Player container (Spotify handles audio via SDK — no visible player needed) -->
+  <div id="yt-player-container" class="yt-hidden" style="display:none">
     <div class="yt-video-controls">
       <button id="btn-close-video" class="btn-close-video" aria-label="Close video">✕</button>
       <button id="btn-fullscreen-video" class="btn-fullscreen-video" aria-label="Fullscreen video" title="Fullscreen">⛶</button>
@@ -1467,12 +1467,12 @@
           </div>
           <button class="btn-outline btn-full" onclick="adminChangePin()">🔑 Update Admin PIN</button>
           <div class="form-group" style="margin-top:12px">
-            <label for="admin-api-key-input">YouTube API Key (overrides built-in key)</label>
+            <label for="admin-api-key-input">Spotify Connection</label>
             <input type="password" id="admin-api-key-input"
-                   placeholder="Paste new API key here" maxlength="100" autocomplete="off"
+                   placeholder="Client ID is embedded" maxlength="100" autocomplete="off" disabled
                    onkeydown="if(event.key==='Enter')adminUpdateApiKey()" />
           </div>
-          <button class="btn-outline btn-full" onclick="adminUpdateApiKey()">🔑 Update YouTube API Key</button>
+          <button class="btn-outline btn-full" onclick="adminUpdateApiKey()">🎵 Reconnect Spotify</button>
         </section>
 
       </div><!-- /admin-main-sections -->
@@ -1482,7 +1482,7 @@
   <script src="https://js.stripe.com/v3/"></script>
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <script src="app.js"></script>
-  <!-- YouTube IFrame API -->
-  <script src="https://www.youtube.com/iframe_api"></script>
+  <!-- Spotify Web Playback SDK -->
+  <script src="https://sdk.scdn.co/spotify-player.js"></script>
 </body>
 </html>

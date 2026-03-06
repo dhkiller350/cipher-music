@@ -3,10 +3,26 @@
    ═══════════════════════════════════════════════════════════ */
 
 // ── Configuration ─────────────────────────────────────────
-const YOUTUBE_API_KEY_STORAGE = 'cipher_youtube_api_key'; // localStorage key for runtime API key override
-const MIN_API_KEY_LENGTH = 20; // YouTube Data API v3 keys are 39 chars; reject anything shorter
+const SPOTIFY_CLIENT_ID = '58d0667f2fd4408385cd4866accaa7ef';
+// Redirect URI must be registered in the Spotify Developer Dashboard.
+// For local dev use http://localhost:8080/index.html — update for production.
+const SPOTIFY_REDIRECT_URI = (() => {
+  const loc = window.location;
+  return loc.origin + loc.pathname; // e.g. https://your-domain.com/index.html
+})();
+const SPOTIFY_SCOPES = [
+  'streaming',
+  'user-read-email',
+  'user-read-private',
+  'user-modify-playback-state',
+  'user-read-playback-state',
+  'user-read-currently-playing',
+  'user-library-read',
+  'user-library-modify'
+].join(' ');
+
 const CONFIG = {
-  YOUTUBE_API_KEY:     localStorage.getItem(YOUTUBE_API_KEY_STORAGE)?.trim() || "AIzaSyBFg0mTLP-ZAhzxF1cTkDsCSYoXz6kmH1Y",
+  SPOTIFY_CLIENT_ID,
   EMAILJS_SERVICE_ID:  "service_p32tpor",
   EMAILJS_TEMPLATE_ID: "template_vjpbh3p",
   EMAILJS_PUBLIC_KEY:  "IJSM7Zp-wxJkkxVN7",
@@ -112,22 +128,21 @@ function _logAccessEvent(event, email, username) {
   } catch (_) { /* ignore */ }
 }
 
-const APP_VERSION = '3.0'; // bump to show changelog on next load
+const APP_VERSION = '3.1'; // bump to show changelog on next load
 
-// ── API key presence check (no network call — save quota) ──
-if (!CONFIG.YOUTUBE_API_KEY || CONFIG.YOUTUBE_API_KEY.length < MIN_API_KEY_LENGTH) {
-  console.error('[Cipher] YOUTUBE_API_KEY is missing or too short — search will not work.');
+// ── Spotify Client ID presence check ──
+if (!CONFIG.SPOTIFY_CLIENT_ID || CONFIG.SPOTIFY_CLIENT_ID.length < 10) {
+  console.error('[Cipher] SPOTIFY_CLIENT_ID is missing — search will not work.');
 }
 
 // ── Admin / Maintenance state ──────────────────────────────
 // Loaded from localStorage so settings survive page refreshes.
-const YOUTUBE_DAILY_QUOTA  = 10000;          // YouTube Data API v3 daily quota units
 const MAX_DISPLAYED_LOGS   = 50;             // max entries shown in the admin log panel
 const ADMIN_PIN_KEY = 'cipher_admin_pin';    // localStorage key for PIN hash
 // Pre-computed SHA-256 of the default admin PIN ("5555").
 const DEFAULT_ADMIN_PIN_HASH = 'c1f330d0aff31c1c87403f1e4347bcc21aff7c179908723535f2b31723702525';
 const MAINT_KEY    = 'cipher_maintenance';   // localStorage key for maintenance flag
-const _adminDefaults = { maintenanceMode: false, isAdminSession: false, quotaUsedToday: 0, fromOverlay: false };
+const _adminDefaults = { maintenanceMode: false, isAdminSession: false, fromOverlay: false };
 const adminState = Object.assign({}, _adminDefaults);
 const _adminLogs = []; // in-memory error log (max 200 entries)
 
@@ -170,21 +185,8 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-/** Return today's date string in US Pacific time (where YouTube resets quota). */
-function _pacificDateString() {
-  try {
-    return new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' });
-  } catch (_) {
-    return new Date().toDateString(); // fallback for browsers without Intl timezone
-  }
-}
-
-// Load maintenance flag and quota from localStorage at startup
+// Load maintenance flag from localStorage at startup
 (function loadAdminState() {
-  // Without a configured server, localStorage is the only source of truth for
-  // maintenance mode — but a downloaded/offline copy can get permanently stuck
-  // if the flag was set to '1' in a previous session and there is no remote state
-  // to override it.  Clear it automatically so offline users are never locked out.
   if (!_loadAdminBase()) {
     localStorage.setItem(MAINT_KEY, '0');
   }
@@ -193,15 +195,7 @@ function _pacificDateString() {
   if (!localStorage.getItem(ADMIN_PIN_KEY)) {
     localStorage.setItem(ADMIN_PIN_KEY, DEFAULT_ADMIN_PIN_HASH);
   }
-  const quota = JSON.parse(localStorage.getItem('cipher_quota_today') || 'null');
-  if (quota && quota.date === _pacificDateString()) {
-    adminState.quotaUsedToday = quota.used || 0;
-  } else {
-    // New Pacific day — reset the counter
-    adminState.quotaUsedToday = 0;
-  }
   // Intercept console.error so all uncaught errors appear in the admin log.
-  // Delegate to _pushAdminLog (not adminLog) to avoid calling console.error recursively.
   const _origError = console.error.bind(console);
   console.error = (...args) => {
     _origError(...args);
@@ -210,41 +204,159 @@ function _pacificDateString() {
   };
 })();
 
-/** Returns ms until the next midnight in US Pacific time (when YouTube resets its daily quota). */
-function _msUntilPacificMidnight() {
+// ═══════════════════════════════════════════════════════════
+// SPOTIFY PKCE AUTH
+// ═══════════════════════════════════════════════════════════
+// The Spotify Authorization Code Flow with PKCE is used for client-side apps.
+// NO client secret is needed — only the Client ID.
+
+let _spotifyAccessToken  = localStorage.getItem('spotify_access_token') || null;
+let _spotifyRefreshToken = localStorage.getItem('spotify_refresh_token') || null;
+let _spotifyTokenExpiry  = parseInt(localStorage.getItem('spotify_token_expiry') || '0', 10);
+
+/** Generate a random string for code_verifier (43-128 chars). */
+function _generateCodeVerifier(length = 64) {
+  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const arr = new Uint8Array(length * 2); // oversample to handle rejection
+  crypto.getRandomValues(arr);
+  let result = '';
+  for (let i = 0; i < arr.length && result.length < length; i++) {
+    if (arr[i] < 248) result += charset[arr[i] % 62]; // reject 248-255 to avoid bias
+  }
+  // Extremely unlikely to not have enough chars; pad if needed
+  while (result.length < length) {
+    const extra = new Uint8Array(1);
+    crypto.getRandomValues(extra);
+    if (extra[0] < 248) result += charset[extra[0] % 62];
+  }
+  return result;
+}
+
+/** SHA-256 hash, then base64url-encode for code_challenge. */
+async function _generateCodeChallenge(verifier) {
+  const data = new TextEncoder().encode(verifier);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Redirect the user to the Spotify authorization page. */
+async function spotifyLogin() {
+  const verifier = _generateCodeVerifier();
+  sessionStorage.setItem('spotify_code_verifier', verifier);
+  const challenge = await _generateCodeChallenge(verifier);
+
+  const params = new URLSearchParams({
+    client_id:             SPOTIFY_CLIENT_ID,
+    response_type:         'code',
+    redirect_uri:          SPOTIFY_REDIRECT_URI,
+    scope:                 SPOTIFY_SCOPES,
+    code_challenge_method: 'S256',
+    code_challenge:        challenge,
+    show_dialog:           'false'
+  });
+  window.location.href = 'https://accounts.spotify.com/authorize?' + params.toString();
+}
+
+/** Exchange the authorization code for tokens. */
+async function _spotifyExchangeCode(code) {
+  const verifier = sessionStorage.getItem('spotify_code_verifier');
+  if (!verifier) throw new Error('Missing code verifier');
+
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id:     SPOTIFY_CLIENT_ID,
+      grant_type:    'authorization_code',
+      code,
+      redirect_uri:  SPOTIFY_REDIRECT_URI,
+      code_verifier: verifier
+    })
+  });
+  if (!res.ok) throw new Error('Token exchange failed: ' + res.status);
+  const data = await res.json();
+  _saveSpotifyTokens(data);
+  sessionStorage.removeItem('spotify_code_verifier');
+}
+
+/** Refresh the access token using the refresh token. */
+async function _spotifyRefreshAccessToken() {
+  if (!_spotifyRefreshToken) throw new Error('No refresh token');
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id:     SPOTIFY_CLIENT_ID,
+      grant_type:    'refresh_token',
+      refresh_token: _spotifyRefreshToken
+    })
+  });
+  if (!res.ok) throw new Error('Token refresh failed: ' + res.status);
+  const data = await res.json();
+  _saveSpotifyTokens(data);
+}
+
+const TOKEN_REFRESH_BUFFER_SECONDS = 60; // refresh this many seconds before actual expiry
+
+function _saveSpotifyTokens(data) {
+  _spotifyAccessToken = data.access_token;
+  if (data.refresh_token) _spotifyRefreshToken = data.refresh_token;
+  _spotifyTokenExpiry = Date.now() + (data.expires_in - TOKEN_REFRESH_BUFFER_SECONDS) * 1000;
+  localStorage.setItem('spotify_access_token', _spotifyAccessToken);
+  if (data.refresh_token) localStorage.setItem('spotify_refresh_token', _spotifyRefreshToken);
+  localStorage.setItem('spotify_token_expiry', String(_spotifyTokenExpiry));
+}
+
+/** Get a valid Spotify access token, refreshing if necessary. */
+async function getSpotifyToken() {
+  if (_spotifyAccessToken && Date.now() < _spotifyTokenExpiry) return _spotifyAccessToken;
+  if (_spotifyRefreshToken) {
+    await _spotifyRefreshAccessToken();
+    return _spotifyAccessToken;
+  }
+  return null; // user needs to log in
+}
+
+/** Check if we are returning from a Spotify OAuth redirect. */
+async function _handleSpotifyCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if (!code) return false;
   try {
-    const now = new Date();
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Los_Angeles',
-      hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false
-    }).formatToParts(now);
-    const h = +parts.find(p => p.type === 'hour').value;
-    const m = +parts.find(p => p.type === 'minute').value;
-    const s = +parts.find(p => p.type === 'second').value;
-    const msIntoDay = (h * 3600 + m * 60 + s) * 1000;
-    return 24 * 60 * 60 * 1000 - msIntoDay;
-  } catch (_) {
-    // Fallback: schedule for 24 hours from now if Intl timezone is unavailable
-    return 24 * 60 * 60 * 1000;
+    await _spotifyExchangeCode(code);
+    // Clean the URL so the code isn't reused
+    window.history.replaceState({}, document.title, window.location.pathname);
+    return true;
+  } catch (err) {
+    console.error('[Spotify] OAuth callback failed:', err);
+    window.history.replaceState({}, document.title, window.location.pathname);
+    return false;
   }
 }
 
-/** Schedule a quota reset at the next Pacific midnight, then re-schedule daily. */
-function _scheduleQuotaMidnightReset() {
-  setTimeout(() => {
-    adminState.quotaUsedToday = 0;
-    localStorage.removeItem('cipher_quota_today');
-    _searchCache = {};
-    _scheduleQuotaMidnightReset(); // re-schedule for the following midnight
-  }, _msUntilPacificMidnight());
+/** Make an authenticated request to the Spotify Web API. */
+async function spotifyApiFetch(url, opts = {}) {
+  const token = await getSpotifyToken();
+  if (!token) throw Object.assign(new Error('Not authenticated with Spotify'), { code: 'NO_TOKEN' });
+  const headers = Object.assign({ 'Authorization': 'Bearer ' + token }, opts.headers || {});
+  const res = await fetch(url, Object.assign({}, opts, { headers }));
+  if (res.status === 401) {
+    // Token expired mid-request — refresh and retry once
+    await _spotifyRefreshAccessToken();
+    headers['Authorization'] = 'Bearer ' + _spotifyAccessToken;
+    return fetch(url, Object.assign({}, opts, { headers }));
+  }
+  return res;
 }
 
-/** Persist today's quota counter to localStorage (keyed by Pacific date). */
-function _saveQuota() {
-  localStorage.setItem('cipher_quota_today', JSON.stringify({
-    date: _pacificDateString(),
-    used: adminState.quotaUsedToday
-  }));
+function spotifyLogout() {
+  _spotifyAccessToken = null;
+  _spotifyRefreshToken = null;
+  _spotifyTokenExpiry = 0;
+  localStorage.removeItem('spotify_access_token');
+  localStorage.removeItem('spotify_refresh_token');
+  localStorage.removeItem('spotify_token_expiry');
 }
 
 // ── State ──────────────────────────────────────────────────
@@ -258,8 +370,9 @@ const state = {
   currentView: 'login',
   searchResults: [],
   currentIndex: -1,
-  ytPlayer: null,
-  ytReady: false,
+  spotifyPlayer: null,      // Spotify Web Playback SDK player instance
+  spotifyDeviceId: null,    // Spotify Connect device ID
+  spotifyReady: false,      // true when player is connected
   isPlaying: false,
   selectedPlan: null,
   paymentRef: null,             // unique reference for the current payment attempt
@@ -271,10 +384,10 @@ const state = {
   activePlan: 'free',       // currently subscribed plan
   songsPlayed: 0,           // session play count
   minutesListened: 0,       // session listening minutes
-  videoMode: false,         // whether video mode is on
+  videoMode: false,         // whether video mode is on (unused with Spotify)
   songsSinceAd: 0,          // for free-user ad counter
   deferredInstallPrompt: null,  // PWA install prompt
-  queue: [],                // play queue (array of YouTube items)
+  queue: [],                // play queue (array of track items)
   isMuted: false,           // mute state
   sleepTimerId: null,       // sleep timer timeout ID
   ratePromptShown: false,   // whether rate-app prompt was shown this session
@@ -343,9 +456,9 @@ document.addEventListener('visibilitychange', () => {
     if (_wasPlayingWhenHidden && !_userExplicitlyPaused) {
       _wasPlayingWhenHidden = false;
       startBgAudioKeepAlive();
-      // iOS may have force-paused the YouTube player while we were hidden.
-      if (!state.isPlaying && state.ytPlayer && state.ytReady) {
-        state.ytPlayer.playVideo();
+      // Resume Spotify playback if it was paused by the OS
+      if (!state.isPlaying && state.spotifyReady) {
+        spotifyApiFetch('https://api.spotify.com/v1/me/player/play', { method: 'PUT' }).catch(() => {});
       }
     }
     _wasPlayingWhenHidden = false;
@@ -382,7 +495,7 @@ if ('onfreeze' in document) {
 // ── iOS Background Audio Keep-Alive ──────────────────────
 // On iOS (Safari/PWA) the audio session is suspended when the screen locks
 // or when the user switches apps.  Playing a near-silent 1 Hz tone via the
-// Web Audio API maintains the audio session so the YouTube iframe keeps
+// Web Audio API maintains the audio session so the Spotify playback keeps
 // playing in the background.
 let _bgAudioCtx    = null;
 let _bgGainNode    = null;
@@ -433,7 +546,9 @@ function stopBgAudioKeepAlive() {
 }
 
 function stopAllMusic() {
-  if (state.ytPlayer && state.ytReady) { state.ytPlayer.stopVideo(); }
+  if (state.spotifyReady && state.spotifyDeviceId) {
+    spotifyApiFetch('https://api.spotify.com/v1/me/player/pause', { method: 'PUT' }).catch(() => {});
+  }
   stopBgAudioKeepAlive();
   state.isPlaying = false;
 }
@@ -443,11 +558,9 @@ function stopAllMusic() {
 // hardware media keys (headphones, lock-screen controls).
 function updateMediaSession(item) {
   if (!('mediaSession' in navigator)) return;
-  const title   = decodeHTMLEntities(item.snippet?.title || '');
-  const artist  = item.snippet?.channelTitle || 'Cipher Music';
-  const thumb   = item.snippet?.thumbnails?.high?.url
-               || item.snippet?.thumbnails?.medium?.url
-               || '';
+  const title   = decodeHTMLEntities(_getTitle(item));
+  const artist  = _getArtist(item) || 'Cipher Music';
+  const thumb   = _getThumb(item, 'high');
 
   navigator.mediaSession.metadata = new MediaMetadata({
     title,
@@ -459,11 +572,11 @@ function updateMediaSession(item) {
     ] : []
   });
 
-  navigator.mediaSession.setActionHandler('play',          () => { state.ytPlayer?.playVideo();  });
-  navigator.mediaSession.setActionHandler('pause',         () => { state.ytPlayer?.pauseVideo(); });
+  navigator.mediaSession.setActionHandler('play',          () => { togglePlayPause(); });
+  navigator.mediaSession.setActionHandler('pause',         () => { togglePlayPause(); });
   navigator.mediaSession.setActionHandler('previoustrack', () => playPrev());
   navigator.mediaSession.setActionHandler('nexttrack',     () => playNext());
-  navigator.mediaSession.setActionHandler('stop',          () => { state.ytPlayer?.stopVideo(); });
+  navigator.mediaSession.setActionHandler('stop',          () => { stopAllMusic(); });
 
   // Lock-screen shuffle/repeat actions (supported on Android Chrome / some iOS versions)
   try {
@@ -478,15 +591,20 @@ function updateMediaSession(item) {
   try {
     navigator.mediaSession.setActionHandler('seekbackward', (details) => {
       const step = details?.seekOffset ?? seekStep;
-      const current = state.ytPlayer?.getCurrentTime?.() ?? 0;
-      state.ytPlayer?.seekTo(Math.max(0, current - step), true);
+      // Seek backward via Spotify API
+      spotifyApiFetch('https://api.spotify.com/v1/me/player').then(r => r.json()).then(d => {
+        const pos = Math.max(0, (d.progress_ms || 0) - step * 1000);
+        spotifyApiFetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${pos}`, { method: 'PUT' });
+      }).catch(() => {});
     });
   } catch (_) {}
   try {
     navigator.mediaSession.setActionHandler('seekforward', (details) => {
       const step = details?.seekOffset ?? seekStep;
-      const current = state.ytPlayer?.getCurrentTime?.() ?? 0;
-      state.ytPlayer?.seekTo(current + step, true);
+      spotifyApiFetch('https://api.spotify.com/v1/me/player').then(r => r.json()).then(d => {
+        const pos = (d.progress_ms || 0) + step * 1000;
+        spotifyApiFetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${pos}`, { method: 'PUT' });
+      }).catch(() => {});
     });
   } catch (_) {}
 }
@@ -617,8 +735,8 @@ function importDeviceCode(code) {
     let restoredRecent = 0;
     if (Array.isArray(payload.r) && payload.r.length) {
       const existing = getRecentlyPlayed();
-      const existingIds = new Set(existing.map(s => s.videoId));
-      const merged = [...existing, ...payload.r.filter(s => !existingIds.has(s.videoId))];
+      const existingIds = new Set(existing.map(s => s.trackId));
+      const merged = [...existing, ...payload.r.filter(s => !existingIds.has(s.trackId))];
       localStorage.setItem('cipher_recent', JSON.stringify(merged.slice(0, MAX_RECENT_SONGS)));
       restoredRecent = payload.r.length;
     }
@@ -1172,17 +1290,17 @@ async function _syncRecentFromApi(email) {
     const serverRecent = await _cipherApiCall('GET', '/api/recent');
     if (!Array.isArray(serverRecent) || !serverRecent.length) return;
     const local = getRecentlyPlayed();
-    const serverIds = new Set(serverRecent.map(s => s.video_id || s.videoId));
+    const serverIds = new Set(serverRecent.map(s => s.track_id || s.trackId));
     // Convert server rows to the local shape
     const serverItems = serverRecent.map(s => ({
-      videoId:  s.video_id || s.videoId,
+      trackId:  s.track_id || s.trackId,
       title:    s.title,
       channel:  s.channel,
       thumb:    s.thumb,
       playedAt: s.played_at ? new Date(s.played_at).getTime() : (s.playedAt || 0),
     }));
     // Keep local items not already on server, then append them after server items
-    const localOnly = local.filter(l => !serverIds.has(l.videoId));
+    const localOnly = local.filter(l => !serverIds.has(l.trackId));
     const merged = [...serverItems, ...localOnly].slice(0, MAX_RECENT_SONGS);
     localStorage.setItem('cipher_recent', JSON.stringify(merged));
     renderRecentlyPlayed();
@@ -1241,115 +1359,130 @@ function showView(viewName) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// YOUTUBE IFrame API
+// SPOTIFY WEB PLAYBACK SDK
 // ═══════════════════════════════════════════════════════════
-window.onYouTubeIframeAPIReady = function () {
-  state.ytReady = true;
-  state.ytPlayer = new YT.Player('yt-player', {
-    height: '180',
-    width: '320',
-    playerVars: {
-      autoplay:         0,
-      controls:         1,  // show controls (needed for iOS background audio)
-      playsinline:      1,  // prevent iOS from going fullscreen automatically
-      rel:              0,  // no related videos at end
-      modestbranding:   1,  // minimal YouTube branding
-      fs:               1,  // allow fullscreen button
-      iv_load_policy:   3,  // hide video annotations
-      disablekb:        0,  // allow keyboard shortcuts
-      cc_load_policy:   0,  // don't show captions by default
-      hl:               'en'
-    },
-    events: { onReady: onPlayerReady, onStateChange: onPlayerStateChange }
-  });
-};
 
-function onPlayerReady() {
-  // Patch the iframe's `allow` attribute so mobile browsers grant autoplay
-  // permission even in background — required for background audio on iOS/iPadOS.
-  try {
-    const iframe = document.querySelector('#yt-player iframe');
-    if (iframe) {
-      const current = iframe.getAttribute('allow') || '';
-      const needed  = ['autoplay', 'background-sync'].filter(f => !current.includes(f));
-      if (needed.length) iframe.setAttribute('allow', [current, ...needed].filter(Boolean).join('; '));
-    }
-  } catch (_) { /* non-fatal */ }
+/**
+ * Initialise the Spotify Web Playback SDK.
+ * Called automatically when the SDK script loads (window.onSpotifyWebPlaybackSDKReady).
+ */
+function initSpotifyPlayer() {
+  if (!_spotifyAccessToken) return; // need token first
+
+  const player = new Spotify.Player({
+    name: 'Cipher Music',
+    getOAuthToken: async cb => {
+      const token = await getSpotifyToken();
+      if (!token) {
+        adminLog('Spotify token unavailable — please reconnect.');
+        return;
+      }
+      cb(token);
+    },
+    volume: 0.8
+  });
+
+  player.addListener('ready', ({ device_id }) => {
+    state.spotifyDeviceId = device_id;
+    state.spotifyReady = true;
+    console.log('[Spotify] Player ready, device_id:', device_id);
+    // Transfer playback to this device
+    spotifyApiFetch('https://api.spotify.com/v1/me/player', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_ids: [device_id], play: false })
+    }).catch(() => {});
+  });
+
+  player.addListener('not_ready', ({ device_id }) => {
+    state.spotifyReady = false;
+    console.log('[Spotify] Device went offline:', device_id);
+  });
+
+  player.addListener('player_state_changed', (spotifyState) => {
+    if (!spotifyState) return;
+    _handleSpotifyStateChange(spotifyState);
+  });
+
+  player.addListener('initialization_error', ({ message }) => {
+    adminLog('Spotify init error: ' + message);
+  });
+  player.addListener('authentication_error', ({ message }) => {
+    adminLog('Spotify auth error: ' + message);
+    // Token might be stale — try refreshing
+    _spotifyRefreshAccessToken().catch(() => {});
+  });
+  player.addListener('account_error', ({ message }) => {
+    adminLog('Spotify account error: ' + message);
+    showToast('Spotify Premium is required for playback.', 'error', 5000);
+  });
+
+  player.connect();
+  state.spotifyPlayer = player;
 }
 
-function onPlayerStateChange(event) {
-  const playing = event.data === YT.PlayerState.PLAYING;
+/** Map Spotify player state changes to the app's state model. */
+function _handleSpotifyStateChange(spState) {
+  const playing = !spState.paused;
   state.isPlaying = playing;
   $('#play-icon')?.classList.toggle('hidden', playing);
   $('#pause-icon')?.classList.toggle('hidden', !playing);
   setSoundwavePlaying(playing);
 
   if (playing) {
-    _userExplicitlyPaused = false; // clear on any play event
-    _bgRetryCount = 0;             // reset retry counter on successful play
+    _userExplicitlyPaused = false;
+    _bgRetryCount = 0;
     clearTimeout(_bgResumeTimer);
     startListeningTimer();
     requestWakeLock();
-    startBgAudioKeepAlive(); // keep iOS audio session alive in background
+    startBgAudioKeepAlive();
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'playing';
     }
   } else {
     stopListeningTimer();
-    if (event.data === YT.PlayerState.PAUSED) {
-      releaseWakeLock();
-      if (document.hidden) {
-        // Screen locked or app switched — the OS paused us, NOT the user.
-        // Mark that we were playing so foreground-return can resume.
-        _wasPlayingWhenHidden = true;
-        // Attempt to auto-resume with multiple retries — a single attempt at
-        // 800ms can miss on iOS if the screen is still locking.  Retries at
-        // ~2 s and ~4 s cover slower devices and brief app-switch scenarios.
-        clearTimeout(_bgResumeTimer);
-        _bgRetryCount = 0;
-        const _tryResume = () => {
-          if (!document.hidden || _userExplicitlyPaused || !state.ytPlayer || !state.ytReady) return;
-          startBgAudioKeepAlive();
-          state.ytPlayer.playVideo();
-          if (++_bgRetryCount < 3) {
-            _bgResumeTimer = setTimeout(_tryResume, _bgRetryCount === 1 ? 1200 : 2000);
-          }
-        };
-        _bgResumeTimer = setTimeout(_tryResume, 800);
-      } else {
-        // User explicitly paused in foreground
-        _userExplicitlyPaused = true;
-        stopBgAudioKeepAlive();
-      }
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'paused';
-      }
+    releaseWakeLock();
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'paused';
     }
   }
 
-  if (event.data === YT.PlayerState.ENDED) {
-    setSoundwavePlaying(false);
-    const settings = JSON.parse(localStorage.getItem('cipher_settings') || '{}');
-    const repeat   = settings.repeatMode || 'off';
-    if (repeat === 'one') {
-      playVideo(state.currentIndex);
-    } else if (playNextWithQueue()) {
-      // Queue item played — nothing more to do
-    } else if (settings.shuffle) {
-      // Shuffle: pick a random track from the available results
-      const next = Math.floor(Math.random() * state.searchResults.length);
-      playVideo(next);
-    } else {
-      // Advance to next track in list, or wrap on repeat-all
-      if (repeat === 'all' && state.currentIndex >= state.searchResults.length - 1) {
-        playVideo(0); // wrap around to the beginning
-      } else if (state.currentIndex < state.searchResults.length - 1) {
-        playNext();
-      }
-      // If at the last track with no repeat, stop — nothing to do
+  // Track ended — Spotify signals this when the track is paused at position 0
+  // after having played (i.e. not a manual seek-to-start).
+  // We also check that the next_tracks list is empty to distinguish from queue transitions.
+  const trackEnded = spState.paused && spState.position === 0
+    && spState.track_window?.current_track
+    && (!spState.track_window.next_tracks || spState.track_window.next_tracks.length === 0)
+    && spState.duration > 0;
+  if (trackEnded) {
+    _onTrackEnded();
+  }
+}
+
+function _onTrackEnded() {
+  setSoundwavePlaying(false);
+  const settings = JSON.parse(localStorage.getItem('cipher_settings') || '{}');
+  const repeat   = settings.repeatMode || 'off';
+  if (repeat === 'one') {
+    playVideo(state.currentIndex);
+  } else if (playNextWithQueue()) {
+    // Queue item played
+  } else if (settings.shuffle) {
+    const next = Math.floor(Math.random() * state.searchResults.length);
+    playVideo(next);
+  } else {
+    if (repeat === 'all' && state.currentIndex >= state.searchResults.length - 1) {
+      playVideo(0);
+    } else if (state.currentIndex < state.searchResults.length - 1) {
+      playNext();
     }
   }
 }
+
+// SDK loader callback — called when the Spotify SDK script finishes loading
+window.onSpotifyWebPlaybackSDKReady = () => {
+  if (_spotifyAccessToken) initSpotifyPlayer();
+};
 
 function setSoundwavePlaying(playing) {
   const sw = $('#np-soundwave');
@@ -1369,19 +1502,21 @@ function startBeatSyncWaveform() {
   if (!sw) return;
   sw.classList.add('beat-sync');
   const bars = Array.from(sw.querySelectorAll('span'));
-  const NUM = bars.length || 15;
 
   // Sine-based pseudo-random beat pattern (fast with accent every ~0.5s)
+  // Amplitudes are driven by the active EQ preset so the waveform reflects
+  // the chosen sound profile visually.
   function tick() {
+    const eq = EQ_PRESETS[_activeEqPreset] || EQ_PRESETS['flat'];
     _beatPhase += 0.06;
     bars.forEach((bar, i) => {
       // Stagger phase per bar to get a wave effect
       const phase = _beatPhase + i * 0.42;
-      // Multi-frequency: base (slow sway) + beat accent (fast bounce)
+      // Multi-frequency: base (low), beat (mid), noise (high)
       const base   = 0.5 + 0.5 * Math.sin(phase * 1.3);
       const beat   = 0.5 + 0.5 * Math.abs(Math.sin(phase * 3.7 + i * 0.9));
       const noise  = 0.5 + 0.5 * Math.sin(phase * 7.1 + i * 1.7);
-      const h = Math.round(3 + base * 8 + beat * 9 + noise * 4); // 3–24 px
+      const h = Math.round(3 + base * eq.baseAmp + beat * eq.beatAmp + noise * eq.noiseAmp);
       bar.style.height = h + 'px';
     });
     _beatRafId = requestAnimationFrame(tick);
@@ -1416,7 +1551,7 @@ function initLyricsToggle() {
 }
 
 /**
- * Parse a YouTube video title into likely song title + artist.
+ * Parse a track title into likely song title + artist.
  * Handles "Artist - Title", "Title by Artist", "Title (feat. X)" patterns.
  */
 function _parseSongTitle(ytTitle) {
@@ -1475,22 +1610,76 @@ async function fetchLyricsForTrack(ytTitle, channelTitle) {
   }
 }
 
+// ── Data-model helpers ───────────────────────────────────
+// These extract title, artist, thumbnail, and track ID from both the new
+// Spotify search format and the legacy internal format used by liked songs,
+// recently played, and playlists.
+function _getTitle(item) {
+  return item.snippet?.title || item.name || '';
+}
+function _getArtist(item) {
+  return item.snippet?.channelTitle || item.artists?.map(a => a.name).join(', ') || '';
+}
+function _getThumb(item, size) {
+  // Spotify format: item.album.images[{url, height, width}]
+  if (item.album?.images?.length) {
+    if (size === 'high')    return item.album.images[0]?.url || '';
+    if (size === 'medium')  return (item.album.images[1] || item.album.images[0])?.url || '';
+    return (item.album.images[2] || item.album.images[0])?.url || '';
+  }
+  // Legacy internal format
+  if (item.snippet?.thumbnails) {
+    if (size === 'high')   return item.snippet.thumbnails.high?.url || item.snippet.thumbnails.medium?.url || '';
+    if (size === 'medium') return item.snippet.thumbnails.medium?.url || '';
+    return item.snippet.thumbnails.default?.url || item.snippet.thumbnails.medium?.url || '';
+  }
+  return item.thumb || '';
+}
+function _getTrackId(item) {
+  return item.id?.trackId || item.trackId || item.id || '';
+}
+function _getTrackUri(item) {
+  return item.uri || item.trackUri || '';
+}
+
+/** Build a Spotify track URI from a track ID, with basic validation. */
+function _buildSpotifyUri(trackId) {
+  if (!trackId || typeof trackId !== 'string' || !/^[a-zA-Z0-9]{22}$/.test(trackId)) {
+    return ''; // Spotify track IDs are 22 base62 characters
+  }
+  return 'spotify:track:' + trackId;
+}
+
 function playVideo(index) {
-  if (!state.ytReady || !state.ytPlayer || index < 0 || index >= state.searchResults.length) return;
+  if (index < 0 || index >= state.searchResults.length) return;
 
   // Stop previous listening timer before starting new track
   stopListeningTimer();
 
   state.currentIndex = index;
   const item = state.searchResults[index];
-  const videoId = item.id?.videoId;
-  if (!videoId) return;
+  const trackUri = item.uri || item.trackUri;
+  if (!trackUri) return;
 
-  state.ytPlayer.loadVideoById(videoId);
+  // Play via Spotify Connect
+  if (state.spotifyReady && state.spotifyDeviceId) {
+    spotifyApiFetch('https://api.spotify.com/v1/me/player/play?device_id=' + state.spotifyDeviceId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uris: [trackUri] })
+    }).catch(err => {
+      adminLog('Spotify play error: ' + err.message);
+      showToast('Playback error. Make sure Spotify Premium is active.', 'error', 4000);
+    });
+  } else {
+    // Fallback: open in Spotify app/web
+    const trackId = item.id?.trackId || item.trackId || '';
+    if (trackId) window.open(`https://open.spotify.com/track/${trackId}`, '_blank');
+    showToast('Connecting to Spotify…', 'info', 3000);
+    return;
+  }
+
   state.isPlaying = true;
-
-  // Start background audio keep-alive here (on the user gesture) so iOS
-  // allows the AudioContext to be created/resumed
   startBgAudioKeepAlive();
 
   updateNowPlaying(item);
@@ -1499,8 +1688,14 @@ function playVideo(index) {
   showPlayerBar();
   highlightCard(index);
 
+  // Set volume via Spotify
   const vol = parseInt($('#volume-slider')?.value ?? 80, 10);
-  state.ytPlayer.setVolume(vol);
+  if (state.spotifyPlayer) {
+    state.spotifyPlayer.setVolume(vol / 100).catch(() => {});
+  }
+
+  // Apply user settings (EQ visualisation etc.)
+  applyAllSettings();
 
   // Track play count and start listening timer
   state.songsPlayed++;
@@ -1531,9 +1726,9 @@ function updateNowPlayingPanel(item) {
   const channel = $('#np-panel-channel');
   const bg      = $('#np-panel-bg');
 
-  const thumb   = item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.medium?.url || '';
-  const titleTxt = decodeHTMLEntities(item.snippet?.title || '');
-  const ch      = item.snippet?.channelTitle || '';
+  const thumb   = _getThumb(item, 'high');
+  const titleTxt = decodeHTMLEntities(_getTitle(item));
+  const ch      = _getArtist(item);
 
   if (art)     art.src = thumb;
   if (title)   title.textContent = titleTxt;
@@ -1541,9 +1736,7 @@ function updateNowPlayingPanel(item) {
   if (bg && thumb) bg.style.backgroundImage = `url(${thumb})`;
 
   const settings = JSON.parse(localStorage.getItem('cipher_settings') || '{}');
-  const showSW   = settings.showSoundwave !== false;
-  const sw       = $('#np-soundwave');
-  if (sw) sw.style.display = showSW ? 'flex' : 'none';
+  applySoundwaveVisibility(settings.showSoundwave !== false);
 
   if (panel) panel.classList.remove('hidden');
   setSoundwavePlaying(true);
@@ -1554,9 +1747,9 @@ function updateNowPlayingPanel(item) {
 }
 
 function updateNowPlaying(item) {
-  const thumb   = item.snippet?.thumbnails?.default?.url || '';
-  const title   = item.snippet?.title || '';
-  const channel = item.snippet?.channelTitle || '';
+  const thumb   = _getThumb(item, 'default');
+  const title   = _getTitle(item);
+  const channel = _getArtist(item);
 
   const npThumb   = $('#np-thumb');
   const npTitle   = $('#np-title');
@@ -1583,7 +1776,7 @@ function getLiked() {
 }
 
 function getLikedIds() {
-  return new Set(getLiked().map(s => s.videoId));
+  return new Set(getLiked().map(s => s.trackId));
 }
 
 function saveLiked(list) {
@@ -1591,16 +1784,16 @@ function saveLiked(list) {
 }
 
 function toggleLike(btn) {
-  const videoId = btn.dataset.videoid;
+  const trackId = btn.dataset.trackid;
   const title   = btn.dataset.title;
   const channel = btn.dataset.channel;
   const thumb   = btn.dataset.thumb;
-  if (!videoId) return;
+  if (!trackId) return;
 
   let liked = getLiked();
-  const idx = liked.findIndex(s => s.videoId === videoId);
+  const idx = liked.findIndex(s => s.trackId === trackId);
   if (idx === -1) {
-    liked.push({ videoId, title, channel, thumb });
+    liked.push({ trackId, title, channel, thumb });
     btn.classList.add('liked');
     btn.querySelector('svg')?.setAttribute('fill', 'currentColor');
     btn.setAttribute('aria-label', 'Unlike ' + title);
@@ -1653,8 +1846,9 @@ function populateLiked() {
 
   // Build fake "items" compatible with renderResults
   const items = liked.map(s => ({
-    id: { videoId: s.videoId },
-    videoId: s.videoId,
+    id: { trackId: s.trackId },
+    trackId: s.trackId,
+    uri: _buildSpotifyUri(s.trackId),
     snippet: {
       title: s.title,
       channelTitle: s.channel,
@@ -1669,16 +1863,16 @@ function populateLiked() {
     const thumb   = item.snippet?.thumbnails?.medium?.url || '';
     const title   = decodeHTMLEntities(item.snippet?.title || '');
     const channel = item.snippet?.channelTitle || '';
-    const videoId = item.id?.videoId || '';
+    const trackId = item.id?.trackId || '';
     return `
-      <div class="result-card" data-index="${idx}" data-videoid="${escapeAttr(videoId)}" role="article">
+      <div class="result-card" data-index="${idx}" data-trackid="${escapeAttr(trackId)}" role="article">
         <img class="result-thumb" src="${thumb}" alt="${escapeAttr(title)}" loading="lazy" />
         <div class="result-info">
           <p class="result-title" title="${escapeAttr(title)}">${title}</p>
           <p class="result-channel">${escapeHTML(channel)}</p>
           <div class="card-actions">
             <button class="btn-primary result-play-btn" data-index="${idx}" aria-label="Play ${escapeAttr(title)}">▶ Play</button>
-            <button class="btn-like liked" data-videoid="${escapeAttr(videoId)}" data-title="${escapeAttr(title)}" data-channel="${escapeAttr(channel)}" data-thumb="${escapeAttr(thumb)}" aria-label="Unlike ${escapeAttr(title)}">
+            <button class="btn-like liked" data-trackid="${escapeAttr(trackId)}" data-title="${escapeAttr(title)}" data-channel="${escapeAttr(channel)}" data-thumb="${escapeAttr(thumb)}" aria-label="Unlike ${escapeAttr(title)}">
               <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" width="16" height="16">
                 <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
               </svg>
@@ -1704,23 +1898,31 @@ function playNext() {
 }
 
 function playPrev() {
+  function _goToPrev() {
+    const prev = state.currentIndex - 1;
+    if (prev >= 0) {
+      playVideo(prev);
+    } else {
+      showToast('Already at the first track.', 'info', 2000);
+    }
+  }
   // If more than 3 seconds into the track, restart it instead of going back
-  if (state.ytPlayer && state.ytReady) {
-    const currentTime = state.ytPlayer.getCurrentTime?.() ?? 0;
-    if (currentTime > 3) { replayTrack(); return; }
+  if (state.spotifyReady) {
+    spotifyApiFetch('https://api.spotify.com/v1/me/player').then(r => r.json()).then(d => {
+      if ((d.progress_ms || 0) > 3000) { replayTrack(); return; }
+      _goToPrev();
+    }).catch(() => _goToPrev());
+    return;
   }
-  const prev = state.currentIndex - 1;
-  if (prev >= 0) {
-    playVideo(prev);
-  } else {
-    showToast('Already at the first track.', 'info', 2000);
-  }
+  _goToPrev();
 }
 
 function replayTrack() {
-  if (!state.ytPlayer || !state.ytReady) return;
-  state.ytPlayer.seekTo(0, true);
-  if (!state.isPlaying) state.ytPlayer.playVideo();
+  if (!state.spotifyReady) return;
+  spotifyApiFetch('https://api.spotify.com/v1/me/player/seek?position_ms=0', { method: 'PUT' }).catch(() => {});
+  if (!state.isPlaying) {
+    spotifyApiFetch('https://api.spotify.com/v1/me/player/play', { method: 'PUT' }).catch(() => {});
+  }
 }
 
 function toggleShuffle() {
@@ -1741,12 +1943,12 @@ function toggleShuffle() {
 }
 
 function togglePlayPause() {
-  if (!state.ytPlayer || !state.ytReady) return;
+  if (!state.spotifyReady) return;
   if (state.isPlaying) {
-    _userExplicitlyPaused = true; // user-initiated pause
-    state.ytPlayer.pauseVideo();
+    _userExplicitlyPaused = true;
+    spotifyApiFetch('https://api.spotify.com/v1/me/player/pause', { method: 'PUT' }).catch(() => {});
   } else {
-    state.ytPlayer.playVideo();
+    spotifyApiFetch('https://api.spotify.com/v1/me/player/play', { method: 'PUT' }).catch(() => {});
   }
 }
 
@@ -1757,126 +1959,83 @@ function decodeHTMLEntities(str) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// YOUTUBE SEARCH
+// SPOTIFY SEARCH
 // ═══════════════════════════════════════════════════════════
 
-// In-session search cache — keyed by "query|channelId".
-// Survives page navigation within the tab but clears on close.
-// Avoids burning 100 quota units for repeated searches.
+// In-session search cache — keyed by "query".
 let _searchCache = {};
 
 /**
- * Search YouTube for videos matching `query`.
- * @param {string} query  - Search terms
- * @param {string} [channelId] - Optional YouTube channel ID to restrict results.
- *   When provided, results are ordered by viewCount; otherwise by relevance.
+ * Search Spotify for tracks matching `query`.
+ * Returns results in a normalised format compatible with renderResults/playVideo.
  */
-async function searchYouTube(query, channelId = '') {
+async function searchSpotify(query) {
   // Maintenance mode blocks search for non-admins
   if (adminState.maintenanceMode && !adminState.isAdminSession) {
     throw Object.assign(new Error('maintenance'), { code: 'MAINTENANCE' });
   }
 
   // ── Cache check ──────────────────────────────────────────
-  const cacheKey = `${query}|${channelId}`;
+  const cacheKey = query;
   if (_searchCache[cacheKey]) return _searchCache[cacheKey];
-
-  const url = new URL('https://www.googleapis.com/youtube/v3/search');
-  url.searchParams.set('part', 'snippet');
-  url.searchParams.set('type', 'video');
-  url.searchParams.set('maxResults', '25'); // reduced from 50 to save quota
-  url.searchParams.set('q', query);
-  url.searchParams.set('key', CONFIG.YOUTUBE_API_KEY);
-  url.searchParams.set('videoCategoryId', '10'); // 10 = Music category
-  // Order by relevance for searches, viewCount for channel browsing
-  if (channelId) {
-    url.searchParams.set('channelId', channelId);
-    url.searchParams.set('order', 'viewCount');
-  } else {
-    url.searchParams.set('order', 'relevance');
-  }
 
   let response;
   try {
-    response = await fetch(url.toString());
-  } catch (networkErr) {
-    // No internet connection or fetch failed
+    const url = new URL('https://api.spotify.com/v1/search');
+    url.searchParams.set('q', query);
+    url.searchParams.set('type', 'track');
+    url.searchParams.set('limit', '25');
+    url.searchParams.set('market', 'US');
+    response = await spotifyApiFetch(url.toString());
+  } catch (err) {
+    if (err.code === 'NO_TOKEN') {
+      throw Object.assign(new Error('Please connect your Spotify account to search.'), { code: 'NO_TOKEN' });
+    }
     throw Object.assign(new Error('Network error — check your internet connection.'), { code: 'NETWORK' });
   }
 
   if (!response.ok) {
-    // Parse the YouTube API error body for a specific reason code
-    let reason = '';
-    try {
-      const errBody = await response.json();
-      reason = errBody?.error?.errors?.[0]?.reason || '';
-      // Log to admin error log
-      adminLog(`YouTube API ${response.status}: ${reason || response.statusText}`);
-    } catch (_) {}
+    let errMsg = '';
+    try { const j = await response.json(); errMsg = j?.error?.message || ''; } catch (_) {}
+    adminLog(`Spotify API ${response.status}: ${errMsg || response.statusText}`);
 
-    if (response.status === 403) {
-      if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') {
-        throw Object.assign(new Error('Daily search quota exceeded. Try again tomorrow or contact support.'), { code: 'QUOTA' });
-      }
-      if (reason === 'keyInvalid') {
-        throw Object.assign(new Error('API key invalid. Please contact support.'), { code: 'KEY_INVALID' });
-      }
-      throw Object.assign(new Error('Access denied. Check API key restrictions.'), { code: 'FORBIDDEN' });
+    if (response.status === 401) {
+      throw Object.assign(new Error('Spotify session expired. Please reconnect.'), { code: 'AUTH_EXPIRED' });
     }
-    if (response.status === 400) {
-      throw Object.assign(new Error('Bad request. Try a different search term.'), { code: 'BAD_REQUEST' });
+    if (response.status === 429) {
+      throw Object.assign(new Error('Too many requests. Please wait a moment.'), { code: 'RATE_LIMIT' });
     }
-    throw Object.assign(new Error(`YouTube API error ${response.status}. Try again in a moment.`), { code: 'API_ERROR' });
+    throw Object.assign(new Error(`Spotify API error ${response.status}. Try again in a moment.`), { code: 'API_ERROR' });
   }
 
   const data = await response.json();
-  // Track quota usage (each search costs ~100 units)
-  adminState.quotaUsedToday = (adminState.quotaUsedToday || 0) + 100;
-  _saveQuota();
+  const tracks = data.tracks?.items || [];
 
-  const results = filterMusicOnly(data.items || []);
-  // Store in session cache to avoid redundant API calls
+  // Normalise Spotify tracks into the app's item format
+  const results = tracks.map(track => ({
+    // Primary ID fields
+    id: { trackId: track.id },
+    trackId: track.id,
+    uri: track.uri,
+    // Spotify native fields (used by _getTitle/_getArtist/_getThumb helpers)
+    name: track.name,
+    artists: track.artists,
+    album: track.album,
+    duration_ms: track.duration_ms,
+    // Legacy snippet fields for backward compat with renderResults, liked, etc.
+    snippet: {
+      title: track.name,
+      channelTitle: track.artists?.map(a => a.name).join(', ') || '',
+      thumbnails: {
+        high:    { url: track.album?.images?.[0]?.url || '' },
+        medium:  { url: (track.album?.images?.[1] || track.album?.images?.[0])?.url || '' },
+        default: { url: (track.album?.images?.[2] || track.album?.images?.[0])?.url || '' }
+      }
+    }
+  }));
+
   _searchCache[cacheKey] = results;
   return results;
-}
-
-/**
- * Remove non-music videos from a list of YouTube search results.
- * Blocks: reviews, reactions, gaming, let's-plays, unboxing, tutorials,
- * vlogs, podcasts, compilation critiques, and other non-music content.
- */
-function filterMusicOnly(items) {
-  // Keywords whose presence in a title strongly signals non-music content.
-  const blocklist = [
-    /\breview\b/i,
-    /\breaction\b/i,
-    /\blet[''\u2019]?s\s+play\b/i,
-    /\bgameplay\b/i,
-    /\bgaming\b/i,
-    /\bunboxing\b/i,
-    /\btutorial\b/i,
-    /\bhow\s+to\b/i,
-    /\bvlog\b/i,
-    /\bpodcast\b/i,
-    /\binterview\b/i,
-    /\bexplained\b/i,
-    /\banalysis\b/i,
-    /\bbreakdown\b/i,
-    /\brant\b/i,
-    /\bcommentary\b/i,
-    /\bwalkthrough\b/i,
-    /\bspeedrun\b/i,
-  ];
-
-  return items.filter(item => {
-    const title   = item.snippet?.title || '';
-    const channel = item.snippet?.channelTitle || '';
-    // Block if the title matches any non-music keyword
-    if (blocklist.some(re => re.test(title))) return false;
-    // Block channels that are obviously gaming/tech, not music
-    if (/gaming|esport|let[''\u2019]?s\s+play/i.test(channel)) return false;
-    return true;
-  });
 }
 
 function bindCardEvents(container) {
@@ -1940,20 +2099,20 @@ function renderResults(items, gridId = 'search-results') {
   const liked = getLikedIds();
 
   grid.innerHTML = items.map((item, idx) => {
-    const thumb   = item.snippet?.thumbnails?.medium?.url || '';
-    const title   = decodeHTMLEntities(item.snippet?.title || '');
-    const channel = item.snippet?.channelTitle || '';
-    const videoId = item.id?.videoId || item.videoId || '';
-    const isLiked = liked.has(videoId);
+    const thumb   = _getThumb(item, 'medium');
+    const title   = decodeHTMLEntities(_getTitle(item));
+    const channel = _getArtist(item);
+    const trackId = _getTrackId(item);
+    const isLiked = liked.has(trackId);
     return `
-      <div class="result-card" data-index="${idx}" data-videoid="${escapeAttr(videoId)}" role="article">
+      <div class="result-card" data-index="${idx}" data-trackid="${escapeAttr(trackId)}" role="article">
         <img class="result-thumb" src="${thumb}" alt="${escapeAttr(title)}" loading="lazy" />
         <div class="result-info">
           <p class="result-title" title="${escapeAttr(title)}">${title}</p>
           <p class="result-channel">${escapeHTML(channel)}</p>
           <div class="card-actions">
             <button class="btn-primary result-play-btn" data-index="${idx}" aria-label="Play ${escapeAttr(title)}">▶ Play</button>
-            <button class="btn-like${isLiked ? ' liked' : ''}" data-videoid="${escapeAttr(videoId)}" data-title="${escapeAttr(title)}" data-channel="${escapeAttr(channel)}" data-thumb="${escapeAttr(thumb)}" aria-label="${isLiked ? 'Unlike' : 'Like'} ${escapeAttr(title)}">
+            <button class="btn-like${isLiked ? ' liked' : ''}" data-trackid="${escapeAttr(trackId)}" data-title="${escapeAttr(title)}" data-channel="${escapeAttr(channel)}" data-thumb="${escapeAttr(thumb)}" aria-label="${isLiked ? 'Unlike' : 'Like'} ${escapeAttr(title)}">
               <svg viewBox="0 0 24 24" fill="${isLiked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" width="16" height="16">
                 <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
               </svg>
@@ -1993,16 +2152,13 @@ function escapeAttr(str) {
  * Called when the user taps "Reset & Try Again" on the quota-exceeded error screen.
  */
 function resetQuotaAndRetry() {
-  // Clear local quota counter so a fresh day starts
-  adminState.quotaUsedToday = 0;
-  localStorage.removeItem('cipher_quota_today');
   // Clear session search cache so results are fetched fresh
   _searchCache = {};
   // Retry the current search
   handleSearch();
 }
 
-async function handleSearch(query, channelId = '') {
+async function handleSearch(query) {
   const q = query || $('#search-input')?.value.trim();
   if (!q) return;
 
@@ -2012,7 +2168,7 @@ async function handleSearch(query, channelId = '') {
   $('#search-placeholder')?.classList.add('hidden');
 
   try {
-    const items = await searchYouTube(q, channelId);
+    const items = await searchSpotify(q);
     state.searchResults = items;
     renderResults(items);
   } catch (err) {
@@ -2023,23 +2179,20 @@ async function handleSearch(query, channelId = '') {
     if (code === 'MAINTENANCE') {
       msg = '🔧 Cipher Music is under maintenance.';
       action = 'We\'ll be back shortly! Check back soon.';
-    } else if (code === 'QUOTA') {
-      msg = '🔄 Search temporarily unavailable.';
-      action = 'YouTube search is momentarily at capacity. Tap below to try again — it usually resolves quickly.';
-    } else if (code === 'KEY_INVALID') {
-      msg = '⚠️ Service configuration error.';
-      action = 'Please contact support. (API key issue)';
+    } else if (code === 'NO_TOKEN' || code === 'AUTH_EXPIRED') {
+      msg = '🎵 Connect Spotify to search.';
+      action = 'Sign in with your Spotify account to search and play music.';
+    } else if (code === 'RATE_LIMIT') {
+      msg = '🔄 Too many requests.';
+      action = 'Please wait a moment and try again.';
     } else if (code === 'NETWORK') {
       msg = '📡 No internet connection.';
       action = 'Check your Wi-Fi or mobile data and try again.';
-    } else if (code === 'FORBIDDEN') {
-      msg = '⚠️ Search access denied.';
-      action = 'The API key may have domain restrictions. Contact support.';
     } else {
       action = err.message || 'An unexpected error occurred.';
     }
-    const retryBtn = code === 'QUOTA'
-      ? '<button class="btn-primary btn-retry-search" onclick="resetQuotaAndRetry()">🔄 Reset &amp; Try Again</button>'
+    const retryBtn = (code === 'NO_TOKEN' || code === 'AUTH_EXPIRED')
+      ? '<button class="btn-primary btn-retry-search" onclick="spotifyLogin()">🎵 Connect Spotify</button>'
       : '<button class="btn-primary btn-retry-search" onclick="handleSearch()">↺ Retry</button>';
     grid.innerHTML = `<div class="empty-state search-error-state">
       <p class="search-error-title">${msg}</p>
@@ -2586,14 +2739,14 @@ function getRecentlyPlayed() {
 }
 
 function addToRecentlyPlayed(item) {
-  const videoId = item.id?.videoId || item.videoId || '';
-  if (!videoId) return;
-  const title   = decodeHTMLEntities(item.snippet?.title || '');
-  const channel = item.snippet?.channelTitle || '';
-  const thumb   = item.snippet?.thumbnails?.default?.url || item.snippet?.thumbnails?.medium?.url || '';
+  const trackId = _getTrackId(item);
+  if (!trackId) return;
+  const title   = decodeHTMLEntities(_getTitle(item));
+  const channel = _getArtist(item);
+  const thumb   = _getThumb(item, 'default') || _getThumb(item, 'medium');
   const playedAt = Date.now();
-  let recent = getRecentlyPlayed().filter(s => s.videoId !== videoId);
-  recent.unshift({ videoId, title, channel, thumb, playedAt });
+  let recent = getRecentlyPlayed().filter(s => s.trackId !== trackId);
+  recent.unshift({ trackId, title, channel, thumb, playedAt });
   if (recent.length > MAX_RECENT_SONGS) recent = recent.slice(0, MAX_RECENT_SONGS);
   localStorage.setItem('cipher_recent', JSON.stringify(recent));
   renderRecentlyPlayed();
@@ -2601,7 +2754,7 @@ function addToRecentlyPlayed(item) {
   // Persist to server for cross-device sync (fire-and-forget)
   if (CONFIG.CIPHER_API_BASE && _cipherAccessToken) {
     _cipherApiCall('POST', '/api/recent', {
-      videoId,
+      trackId,
       title,
       channel,
       thumb,
@@ -2618,34 +2771,39 @@ function renderRecentlyPlayed() {
   if (!recent.length) { section.classList.add('hidden'); return; }
   section.classList.remove('hidden');
   list.innerHTML = recent.map(s => `
-    <div class="recent-item" data-videoid="${escapeAttr(s.videoId)}" role="button" tabindex="0" aria-label="Play ${escapeAttr(s.title)}">
+    <div class="recent-item" data-trackid="${escapeAttr(s.trackId)}" role="button" tabindex="0" aria-label="Play ${escapeAttr(s.title)}">
       <img class="recent-thumb" src="${escapeAttr(s.thumb)}" alt="" loading="lazy" />
       <div class="recent-info">
         <p class="recent-title">${escapeHTML(s.title)}</p>
         <p class="recent-channel">${escapeHTML(s.channel)}</p>
       </div>
-      <button class="recent-play-btn" data-videoid="${escapeAttr(s.videoId)}" aria-label="Play">▶</button>
+      <button class="recent-play-btn" data-trackid="${escapeAttr(s.trackId)}" aria-label="Play">▶</button>
     </div>
   `).join('');
 
   list.querySelectorAll('.recent-play-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      playFromRecent(btn.dataset.videoid);
+      playFromRecent(btn.dataset.trackid);
     });
   });
   list.querySelectorAll('.recent-item').forEach(item => {
-    item.addEventListener('click', () => playFromRecent(item.dataset.videoid));
+    item.addEventListener('click', () => playFromRecent(item.dataset.trackid));
   });
 }
 
-function playFromRecent(videoId) {
-  const idx = state.searchResults.findIndex(s => (s.id?.videoId || s.videoId) === videoId);
+function playFromRecent(trackId) {
+  const idx = state.searchResults.findIndex(s => (s.id?.trackId || s.trackId) === trackId);
   if (idx !== -1) { playVideo(idx); return; }
   const recent = getRecentlyPlayed();
-  const s = recent.find(r => r.videoId === videoId);
+  const s = recent.find(r => r.trackId === trackId);
   if (!s) return;
-  const item = { id: { videoId }, snippet: { title: s.title, channelTitle: s.channel, thumbnails: { default: { url: s.thumb }, medium: { url: s.thumb } } } };
+  const item = {
+    id: { trackId },
+    trackId,
+    uri: _buildSpotifyUri(trackId),
+    snippet: { title: s.title, channelTitle: s.channel, thumbnails: { default: { url: s.thumb }, medium: { url: s.thumb } } }
+  };
   state.searchResults = [item, ...state.searchResults];
   playVideo(0);
 }
@@ -2670,8 +2828,8 @@ function showAd() {
   const secSpan  = $('#ad-skip-seconds');
   if (!overlay) return;
 
-  if (state.ytPlayer && state.ytReady && state.isPlaying) {
-    state.ytPlayer.pauseVideo();
+  if (state.spotifyReady && state.isPlaying) {
+    spotifyApiFetch('https://api.spotify.com/v1/me/player/pause', { method: 'PUT' }).catch(() => {});
   }
 
   overlay.classList.remove('hidden');
@@ -2695,8 +2853,8 @@ function closeAd() {
   clearInterval(_adTimerId);
   const overlay = $('#ad-overlay');
   if (overlay) overlay.classList.add('hidden');
-  if (state.ytPlayer && state.ytReady) {
-    state.ytPlayer.playVideo();
+  if (state.spotifyReady) {
+    spotifyApiFetch('https://api.spotify.com/v1/me/player/play', { method: 'PUT' }).catch(() => {});
   }
 }
 
@@ -2735,20 +2893,10 @@ function handleAvatarUpload(e) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// VIDEO MODE
+// VIDEO MODE (not available with Spotify — audio only)
 // ═══════════════════════════════════════════════════════════
 function toggleVideoMode() {
-  state.videoMode = !state.videoMode;
-  const container = $('#yt-player-container');
-  const btn = $('#btn-video-mode');
-  if (container) container.classList.toggle('yt-hidden', !state.videoMode);
-  if (btn) btn.classList.toggle('active', state.videoMode);
-
-  if (state.videoMode && state.ytPlayer && state.ytReady) {
-    const w = container.clientWidth || 320;
-    const h = Math.round(Math.min(w * 9 / 16, MAX_VIDEO_HEIGHT));
-    state.ytPlayer.setSize(w, h);
-  }
+  showToast('Video mode is not available with Spotify playback.', 'info', 2500);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3021,6 +3169,9 @@ function loadSettings() {
   }
   // Sync player-bar repeat button with saved setting
   updateRepeatButton(settings.repeatMode ?? 'off');
+
+  // Apply runtime settings (speed, quality, EQ visualisation, soundwave)
+  applyAllSettings();
 }
 
 function saveSettings() {
@@ -3039,6 +3190,85 @@ function saveSettings() {
   localStorage.setItem('cipher_settings', JSON.stringify(settings));
   // Push to server so all other devices pick up the change automatically
   _syncSettingsToServer(settings, localStorage.getItem('cipher_accent_color') || '');
+}
+
+// ── Apply individual settings to the Spotify player ────────
+
+/**
+ * Apply playback speed.
+ * Note: Spotify Web Playback SDK does not natively support variable speed.
+ * This is a no-op placeholder for UI consistency.
+ */
+function applyPlaybackSpeed(rate) {
+  // Spotify does not support playback speed changes via the Web Playback SDK.
+  // The setting is kept for future support.
+}
+
+/**
+ * Apply audio quality preference.
+ * Spotify automatically streams at the highest quality the user's plan allows.
+ */
+function applyHqAudio(enabled) {
+  // Spotify handles audio quality based on the user's subscription tier.
+  // No manual quality control is available via the Web Playback SDK.
+}
+
+/**
+ * EQ preset parameters — each preset adjusts the soundwave visualisation
+ * heights so the user gets visual feedback reflecting the chosen profile.
+ * Keys: baseAmp (low-freq emphasis), beatAmp (mid-freq), noiseAmp (high-freq)
+ */
+const EQ_PRESETS = {
+  'flat':          { baseAmp: 8, beatAmp: 9, noiseAmp: 4, label: 'Flat' },
+  'bass-boost':    { baseAmp: 14, beatAmp: 6, noiseAmp: 2, label: 'Bass Boost' },
+  'treble-boost':  { baseAmp: 4, beatAmp: 6, noiseAmp: 12, label: 'Treble Boost' },
+  'vocal':         { baseAmp: 5, beatAmp: 14, noiseAmp: 3, label: 'Vocal / Podcast' },
+  'electronic':    { baseAmp: 12, beatAmp: 10, noiseAmp: 8, label: 'Electronic' },
+  'acoustic':      { baseAmp: 7, beatAmp: 11, noiseAmp: 5, label: 'Acoustic' },
+  'classical':     { baseAmp: 6, beatAmp: 8, noiseAmp: 7, label: 'Classical' }
+};
+
+/** Currently active EQ preset key. */
+let _activeEqPreset = 'flat';
+
+/**
+ * Apply an equalizer preset.  Updates the soundwave visualisation parameters
+ * and shows a confirmation toast.
+ */
+function applyEqPreset(presetKey, silent) {
+  const preset = EQ_PRESETS[presetKey] || EQ_PRESETS['flat'];
+  _activeEqPreset = presetKey;
+  // Restart the beat-sync waveform so it picks up the new amplitudes
+  if (_beatRafId) {
+    stopBeatSyncWaveform();
+    startBeatSyncWaveform();
+  }
+  if (!silent) {
+    showToast(`🎛️ Equalizer: ${preset.label}`, 'info', 2000);
+  }
+}
+
+/**
+ * Apply the soundwave visibility setting immediately.
+ */
+function applySoundwaveVisibility(show) {
+  const sw = $('#np-soundwave');
+  if (sw) sw.style.display = show ? 'flex' : 'none';
+  if (!show) stopBeatSyncWaveform();
+  else if (state.isPlaying) startBeatSyncWaveform();
+}
+
+/**
+ * Read all saved settings and apply them to the player and UI.
+ * Called after a video starts and on initial page load.
+ */
+function applyAllSettings() {
+  const settings = JSON.parse(localStorage.getItem('cipher_settings') || '{}');
+  applyPlaybackSpeed(settings.playbackSpeed ?? '1');
+  applyHqAudio(settings.hq ?? false);
+  applyEqPreset(settings.eqPreset ?? 'flat', true);
+  applySoundwaveVisibility(settings.showSoundwave !== false);
+  applyDarkMode(settings.darkMode ?? true);
 }
 
 /**
@@ -3193,17 +3423,17 @@ function addSongToPlaylist(playlistId, song) {
   const playlists = getPlaylists();
   const pl = playlists.find(p => p.id === playlistId);
   if (!pl) return false;
-  if (pl.songs.find(s => s.videoId === song.videoId)) return false; // already in playlist
+  if (pl.songs.find(s => s.trackId === song.trackId)) return false; // already in playlist
   pl.songs.push(song);
   savePlaylists(playlists);
   return true;
 }
 
-function removeSongFromPlaylist(playlistId, videoId) {
+function removeSongFromPlaylist(playlistId, trackId) {
   const playlists = getPlaylists();
   const pl = playlists.find(p => p.id === playlistId);
   if (!pl) return;
-  pl.songs = pl.songs.filter(s => s.videoId !== videoId);
+  pl.songs = pl.songs.filter(s => s.trackId !== trackId);
   savePlaylists(playlists);
 }
 
@@ -3284,8 +3514,9 @@ function openPlaylist(id) {
   empty?.classList.add('hidden');
 
   const items = pl.songs.map(s => ({
-    id: { videoId: s.videoId },
-    videoId: s.videoId,
+    id: { trackId: s.trackId },
+    trackId: s.trackId,
+    uri: _buildSpotifyUri(s.trackId),
     snippet: { title: s.title, channelTitle: s.channel, thumbnails: { medium: { url: s.thumb } } }
   }));
   state.searchResults = items;
@@ -3294,21 +3525,21 @@ function openPlaylist(id) {
     const thumb   = item.snippet?.thumbnails?.medium?.url || '';
     const title   = decodeHTMLEntities(item.snippet?.title || '');
     const channel = item.snippet?.channelTitle || '';
-    const videoId = item.id?.videoId || '';
+    const trackId = item.id?.trackId || '';
     return `
-      <div class="result-card" data-index="${idx}" data-videoid="${escapeAttr(videoId)}" role="article">
+      <div class="result-card" data-index="${idx}" data-trackid="${escapeAttr(trackId)}" role="article">
         <img class="result-thumb" src="${thumb}" alt="${escapeAttr(title)}" loading="lazy" />
         <div class="result-info">
           <p class="result-title" title="${escapeAttr(title)}">${title}</p>
           <p class="result-channel">${escapeHTML(channel)}</p>
           <div class="card-actions">
             <button class="btn-primary result-play-btn" data-index="${idx}" aria-label="Play ${escapeAttr(title)}">▶ Play</button>
-            <button class="btn-like${getLikedIds().has(videoId) ? ' liked' : ''}" data-videoid="${escapeAttr(videoId)}" data-title="${escapeAttr(title)}" data-channel="${escapeAttr(channel)}" data-thumb="${escapeAttr(thumb)}" aria-label="Like ${escapeAttr(title)}">
-              <svg viewBox="0 0 24 24" fill="${getLikedIds().has(videoId) ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <button class="btn-like${getLikedIds().has(trackId) ? ' liked' : ''}" data-trackid="${escapeAttr(trackId)}" data-title="${escapeAttr(title)}" data-channel="${escapeAttr(channel)}" data-thumb="${escapeAttr(thumb)}" aria-label="Like ${escapeAttr(title)}">
+              <svg viewBox="0 0 24 24" fill="${getLikedIds().has(trackId) ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" width="16" height="16">
                 <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
               </svg>
             </button>
-            <button class="btn-card-action btn-remove-from-playlist" data-videoid="${escapeAttr(videoId)}" aria-label="Remove from playlist" title="Remove">
+            <button class="btn-card-action btn-remove-from-playlist" data-trackid="${escapeAttr(trackId)}" aria-label="Remove from playlist" title="Remove">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14H6L5,6"/><path d="M10,11v6"/><path d="M14,11v6"/></svg>
             </button>
           </div>
@@ -3321,19 +3552,19 @@ function openPlaylist(id) {
   grid.querySelectorAll('.btn-remove-from-playlist').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      removeSongFromPlaylist(state.currentPlaylistId, btn.dataset.videoid);
+      removeSongFromPlaylist(state.currentPlaylistId, btn.dataset.trackid);
       openPlaylist(state.currentPlaylistId);
     });
   });
 }
 
 function openAddToPlaylistModal(item) {
-  const videoId = item.id?.videoId || item.videoId || '';
+  const trackId = item.id?.trackId || item.trackId || '';
   const title   = decodeHTMLEntities(item.snippet?.title || '');
   const channel = item.snippet?.channelTitle || '';
   const thumb   = item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || '';
 
-  state.addToPlaylistTarget = { videoId, title, channel, thumb };
+  state.addToPlaylistTarget = { trackId, title, channel, thumb };
 
   const playlists = getPlaylists();
   const pickerList = $('#playlist-picker-list');
@@ -3377,8 +3608,8 @@ function setSleepTimer(minutes) {
   if (indicator) indicator.classList.remove('hidden');
 
   state.sleepTimerId = setTimeout(() => {
-    if (state.ytPlayer && state.ytReady && state.isPlaying) {
-      state.ytPlayer.pauseVideo();
+    if (state.spotifyReady && state.isPlaying) {
+      spotifyApiFetch('https://api.spotify.com/v1/me/player/pause', { method: 'PUT' }).catch(() => {});
     }
     showToast('Sleep timer: playback paused 😴', 'info', 5000);
     state.sleepTimerId = null;
@@ -3398,9 +3629,9 @@ function shareCurrentSong() {
     return;
   }
   const item    = state.searchResults[state.currentIndex];
-  const videoId = item?.id?.videoId || item?.videoId || '';
+  const trackId = item?.id?.trackId || item?.trackId || '';
   const title   = decodeHTMLEntities(item?.snippet?.title || 'Check this out');
-  const url     = `https://www.youtube.com/watch?v=${videoId}`;
+  const url     = `https://open.spotify.com/track/${trackId}`;
 
   if (navigator.share) {
     navigator.share({ title, url, text: `🎵 ${title} — Listen on Cipher Music` }).catch(() => {
@@ -3446,15 +3677,15 @@ function handleKeyboardShortcuts(e) {
       // Like/unlike the currently playing song
       if (state.currentIndex >= 0 && state.searchResults[state.currentIndex]) {
         const item    = state.searchResults[state.currentIndex];
-        const videoId = item?.id?.videoId || item?.videoId || '';
+        const trackId = item?.id?.trackId || item?.trackId || '';
         const title   = decodeHTMLEntities(item?.snippet?.title || '');
         const channel = item?.snippet?.channelTitle || '';
         const thumb   = item?.snippet?.thumbnails?.medium?.url || item?.snippet?.thumbnails?.default?.url || '';
-        if (videoId) {
+        if (trackId) {
           let liked = getLiked();
-          const idx = liked.findIndex(s => s.videoId === videoId);
+          const idx = liked.findIndex(s => s.trackId === trackId);
           if (idx === -1) {
-            liked.push({ videoId, title, channel, thumb });
+            liked.push({ trackId, title, channel, thumb });
             showToast('Added to Liked Songs ♥', 'success', 2000);
           } else {
             liked.splice(idx, 1);
@@ -3481,13 +3712,14 @@ function handleKeyboardShortcuts(e) {
 }
 
 function toggleMute() {
-  if (!state.ytPlayer || !state.ytReady) return;
+  if (!state.spotifyPlayer) return;
   state.isMuted = !state.isMuted;
   if (state.isMuted) {
-    state.ytPlayer.mute();
+    state.spotifyPlayer.setVolume(0).catch(() => {});
     showToast('Muted 🔇', 'info', 1500);
   } else {
-    state.ytPlayer.unMute();
+    const vol = parseInt($('#volume-slider')?.value ?? 80, 10);
+    state.spotifyPlayer.setVolume(vol / 100).catch(() => {});
     showToast('Unmuted 🔊', 'info', 1500);
   }
 }
@@ -3702,13 +3934,13 @@ function bindEvents() {
     });
   });
 
-  // ── Genre chips — support optional channelId for NullRaze etc. ──
+  // ── Genre chips — search for the genre/topic ──
   $$('.genre-chip').forEach(chip => {
     chip.addEventListener('click', () => {
       $$('.genre-chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
       state.activeChip = chip.dataset.query;
-      handleSearch(chip.dataset.query, chip.dataset.channel || '');
+      handleSearch(chip.dataset.query);
     });
   });
 
@@ -3717,8 +3949,9 @@ function bindEvents() {
     const liked = getLiked();
     if (!liked.length) return;
     const items = liked.map(s => ({
-      id: { videoId: s.videoId },
-      videoId: s.videoId,
+      id: { trackId: s.trackId },
+      trackId: s.trackId,
+      uri: _buildSpotifyUri(s.trackId),
       snippet: {
         title: s.title,
         channelTitle: s.channel,
@@ -3745,8 +3978,8 @@ function bindEvents() {
   $('#btn-repeat')?.addEventListener('click', cycleRepeat);
 
   $('#volume-slider')?.addEventListener('input', (e) => {
-    if (state.ytPlayer && state.ytReady) {
-      state.ytPlayer.setVolume(parseInt(e.target.value, 10));
+    if (state.spotifyPlayer) {
+      state.spotifyPlayer.setVolume(parseInt(e.target.value, 10) / 100).catch(() => {});
     }
   });
 
@@ -3780,7 +4013,19 @@ function bindEvents() {
     saveSettings();
   });
 
-  ['toggle-autoplay', 'toggle-hq', 'toggle-soundwave', 'toggle-notifications'].forEach(id => {
+  // HQ audio — apply quality change immediately
+  $('#toggle-hq')?.addEventListener('change', function () {
+    saveSettings();
+    applyHqAudio(this.checked);
+  });
+
+  // Soundwave visibility — apply immediately
+  $('#toggle-soundwave')?.addEventListener('change', function () {
+    saveSettings();
+    applySoundwaveVisibility(this.checked);
+  });
+
+  ['toggle-autoplay', 'toggle-notifications'].forEach(id => {
     $(`#${id}`)?.addEventListener('change', saveSettings);
   });
 
@@ -3794,9 +4039,19 @@ function bindEvents() {
     }
   });
 
-  ['playback-speed', 'eq-preset', 'language-select'].forEach(id => {
-    $(`#${id}`)?.addEventListener('change', saveSettings);
+  // Playback speed — apply to player immediately
+  $('#playback-speed')?.addEventListener('change', function () {
+    saveSettings();
+    applyPlaybackSpeed(this.value);
   });
+
+  // Equalizer preset — apply visualisation + feedback immediately
+  $('#eq-preset')?.addEventListener('change', function () {
+    saveSettings();
+    applyEqPreset(this.value);
+  });
+
+  $('#language-select')?.addEventListener('change', saveSettings);
 
   // Keep repeat-mode select in sync with the player-bar repeat button
   $('#repeat-mode')?.addEventListener('change', function () {
@@ -3807,6 +4062,14 @@ function bindEvents() {
   // ── Sign out ──
   $('#btn-signout')?.addEventListener('click', () => {
     stopAllMusic();
+    // Disconnect Spotify player
+    if (state.spotifyPlayer) {
+      state.spotifyPlayer.disconnect();
+      state.spotifyPlayer = null;
+      state.spotifyReady = false;
+      state.spotifyDeviceId = null;
+    }
+    spotifyLogout();
     // Invalidate the server-side session (HttpOnly cookie cleared by server)
     if (CONFIG.CIPHER_API_BASE && _cipherAccessToken) {
       _cipherApiCall('POST', '/api/auth/logout', {}).catch(() => { /* non-blocking */ });
@@ -4283,9 +4546,15 @@ function init() {
   bindEvents();
   initAdminPanel(); // attach admin panel keyboard shortcut
 
-  // Auto-reset YouTube quota counter and search cache at Pacific midnight,
-  // matching when YouTube's API quota actually resets.
-  _scheduleQuotaMidnightReset();
+  // Handle Spotify OAuth callback if returning from Spotify authorization
+  _handleSpotifyCallback().then(authenticated => {
+    if (authenticated || _spotifyAccessToken) {
+      // Initialise the Spotify Web Playback SDK if not already done
+      if (typeof Spotify !== 'undefined' && !state.spotifyPlayer) {
+        initSpotifyPlayer();
+      }
+    }
+  });
 
   // Hash-based routing: allow direct links to signup/reset
   const hash = window.location.hash.slice(1);
@@ -4783,20 +5052,19 @@ function closeAdminPanel() {
 }
 
 function refreshAdminPanel() {
-  // API key (masked)
+  // Spotify Client ID
   const keyEl = document.getElementById('admin-api-key');
   if (keyEl) {
-    const k = CONFIG.YOUTUBE_API_KEY || '';
-    const overridden = !!localStorage.getItem(YOUTUBE_API_KEY_STORAGE)?.trim();
-    keyEl.textContent = k ? k.slice(0, 8) + '…' + k.slice(-4) + (overridden ? ' (custom)' : '') : '(not set)';
-    keyEl.style.color = k.length >= 20 ? '#00d4ff' : '#ff4444';
+    const k = CONFIG.SPOTIFY_CLIENT_ID || '';
+    keyEl.textContent = k ? k.slice(0, 8) + '…' + k.slice(-4) : '(not set)';
+    keyEl.style.color = k.length >= 10 ? '#00d4ff' : '#ff4444';
   }
   // Version
   const verEl = document.getElementById('admin-version');
   if (verEl) verEl.textContent = APP_VERSION;
-  // Quota
+  // Spotify status
   const qEl = document.getElementById('admin-quota');
-  if (qEl) qEl.textContent = `~${adminState.quotaUsedToday} / ${YOUTUBE_DAILY_QUOTA} units today`;
+  if (qEl) qEl.textContent = _spotifyAccessToken ? 'Connected' : 'Not connected';
   // Maintenance toggle
   const mEl = document.getElementById('admin-maint-toggle');
   if (mEl) mEl.checked = adminState.maintenanceMode;
@@ -4874,31 +5142,26 @@ async function _runMaintenanceChecks() {
   const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   logCheck('HTTPS / Secure context', isSecure, location.protocol);
 
-  // 2. API key presence
-  const keyOk = !!(CONFIG.YOUTUBE_API_KEY && CONFIG.YOUTUBE_API_KEY.length >= MIN_API_KEY_LENGTH);
-  logCheck('YouTube API key present', keyOk, keyOk ? CONFIG.YOUTUBE_API_KEY.slice(0,8)+'…' : 'missing or too short');
+  // 2. Spotify Client ID presence
+  const keyOk = !!(CONFIG.SPOTIFY_CLIENT_ID && CONFIG.SPOTIFY_CLIENT_ID.length >= 10);
+  logCheck('Spotify Client ID present', keyOk, keyOk ? CONFIG.SPOTIFY_CLIENT_ID.slice(0,8)+'…' : 'missing or too short');
 
-  // 3. YouTube API reachability (live network call)
+  // 3. Spotify API reachability (live network call)
   try {
-    const ctrl = new AbortController();
-    const tId = setTimeout(() => ctrl.abort(), 8000);
-    const signal = AbortSignal.timeout ? AbortSignal.timeout(8000) : ctrl.signal;
-    const r = await fetch(
-      `https://www.googleapis.com/youtube/v3/search?part=id&type=video&q=cipher&maxResults=1&key=${CONFIG.YOUTUBE_API_KEY}`,
-      { signal }
-    );
-    clearTimeout(tId);
-    const body = await r.json().catch(() => ({}));
-    if (r.ok) {
-      adminState.quotaUsedToday += 100;
-      _saveQuota();
-      logCheck('YouTube API reachable', true, `HTTP ${r.status}`);
+    const token = await getSpotifyToken();
+    if (token) {
+      const r = await spotifyApiFetch('https://api.spotify.com/v1/me');
+      if (r.ok) {
+        const me = await r.json();
+        logCheck('Spotify API reachable', true, `Logged in as ${me.display_name || me.id}`);
+      } else {
+        logCheck('Spotify API reachable', false, `HTTP ${r.status}`);
+      }
     } else {
-      const reason = body?.error?.errors?.[0]?.reason || r.statusText;
-      logCheck('YouTube API reachable', false, `HTTP ${r.status}: ${reason}`);
+      logCheck('Spotify API reachable', false, 'No access token — user not logged in');
     }
   } catch (e) {
-    logCheck('YouTube API reachable', false, e.message);
+    logCheck('Spotify API reachable', false, e.message);
   }
 
   // 4. EmailJS config
@@ -5038,24 +5301,23 @@ function _startMaintenancePoller() {
 
 async function adminTestApiKey() {
   const resultEl = document.getElementById('admin-api-test-result');
-  if (resultEl) resultEl.textContent = 'Testing…';
+  if (resultEl) resultEl.textContent = 'Testing Spotify connection…';
   try {
-    const r = await fetch(
-      `https://www.googleapis.com/youtube/v3/search?part=id&type=video&q=test&maxResults=1&key=${CONFIG.YOUTUBE_API_KEY}`
-    );
-    const body = await r.json();
+    const token = await getSpotifyToken();
+    if (!token) {
+      if (resultEl) { resultEl.textContent = '❌ Not connected to Spotify'; resultEl.style.color = '#ff4444'; }
+      return;
+    }
+    const r = await spotifyApiFetch('https://api.spotify.com/v1/me');
     if (r.ok) {
-      if (resultEl) { resultEl.textContent = `✅ Key works! (HTTP ${r.status})`; resultEl.style.color = '#00d4ff'; }
-      adminState.quotaUsedToday += 100;
-      _saveQuota(); // persist so quota display stays accurate
+      const me = await r.json();
+      if (resultEl) { resultEl.textContent = `✅ Connected as ${me.display_name || me.id} (${me.product})`; resultEl.style.color = '#00d4ff'; }
     } else {
-      const reason = body?.error?.errors?.[0]?.reason || r.statusText;
-      if (resultEl) { resultEl.textContent = `❌ ${r.status}: ${reason}`; resultEl.style.color = '#ff4444'; }
-      adminLog(`API key test failed: ${r.status} ${reason}`);
+      if (resultEl) { resultEl.textContent = `❌ HTTP ${r.status}`; resultEl.style.color = '#ff4444'; }
     }
     refreshAdminPanel();
   } catch (e) {
-    if (resultEl) { resultEl.textContent = `❌ Network error: ${e.message}`; resultEl.style.color = '#ff4444'; }
+    if (resultEl) { resultEl.textContent = `❌ Error: ${e.message}`; resultEl.style.color = '#ff4444'; }
   }
 }
 
@@ -5081,19 +5343,8 @@ async function adminChangePin() {
 }
 
 function adminUpdateApiKey() {
-  const newKey = document.getElementById('admin-api-key-input')?.value?.trim() || '';
-  if (!newKey || newKey.length < MIN_API_KEY_LENGTH) {
-    showToast(`API key must be at least ${MIN_API_KEY_LENGTH} characters.`, 'error'); return;
-  }
-  if (!newKey.startsWith('AIza')) {
-    showToast('API key should start with "AIza" — please check the value.', 'error'); return;
-  }
-  localStorage.setItem(YOUTUBE_API_KEY_STORAGE, newKey);
-  CONFIG.YOUTUBE_API_KEY = newKey;
-  const inp = document.getElementById('admin-api-key-input');
-  if (inp) inp.value = '';
-  showToast('✅ YouTube API key saved — reloading to activate…', 'success');
-  setTimeout(() => window.location.reload(), 1500);
+  // With Spotify, the Client ID is embedded. The admin can reconnect.
+  spotifyLogin();
 }
 
 /** First-time PIN setup — shown when ?debug=1 and no PIN is set. */
